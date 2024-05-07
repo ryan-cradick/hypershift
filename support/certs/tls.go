@@ -18,6 +18,7 @@ import (
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
+	"github.com/openshift/hypershift/support/util"
 	"github.com/pkg/errors"
 	corev1 "k8s.io/api/core/v1"
 	utilerrors "k8s.io/apimachinery/pkg/util/errors"
@@ -317,6 +318,7 @@ func ValidateKeyPair(pemKey, pemCertificate []byte, cfg *CertCfg, minimumRemaini
 	return utilerrors.NewAggregate(errs)
 }
 
+// RKC 5 - ReconcileSignedCert
 // ReconcileSignedCert reconciles a certificate secret using the provided config. It will
 // rotate the cert if there are less than 30 days of validity left.
 func ReconcileSignedCert(
@@ -325,9 +327,9 @@ func ReconcileSignedCert(
 	cn string,
 	org []string,
 	extUsages []x509.ExtKeyUsage,
-	crtKey string,
-	keyKey string,
-	caKey string,
+	crtKey string, // tls.crt
+	keyKey string, // tls.key
+	caKey string, // ca.crt - aka the cluster-signer-ca secret
 	dnsNames []string,
 	ips []string,
 	o ...func(*CAOpts),
@@ -352,9 +354,6 @@ func ReconcileSignedCert(
 	if secret.Data == nil {
 		secret.Data = map[string][]byte{}
 	}
-	if caKey != "" {
-		secret.Data[caKey] = append([]byte(nil), ca.Data[opts.CASignerCertMapKey]...)
-	}
 
 	cfg := &CertCfg{
 		Subject:      pkix.Name{CommonName: cn, Organization: org},
@@ -364,15 +363,32 @@ func ReconcileSignedCert(
 		DNSNames:     dnsNames,
 		IPAddresses:  ipAddresses,
 	}
-	if err := ValidateKeyPair(secret.Data[keyKey], secret.Data[crtKey], cfg, 30*ValidityOneDay); err == nil {
-		return nil
+
+	// RKC 6 - issue?
+	currentCACrt := []byte(nil)
+	if caKey != "" {
+		currentCACrt = secret.Data[caKey]
+		secret.Data[caKey] = append([]byte(nil), ca.Data[opts.CASignerCertMapKey]...) // caKey = ca.crt
 	}
+	newCACrt := secret.Data[caKey]
+	util.Logloud("ca.crt: "+caKey, string(currentCACrt), string(newCACrt))
+	// if bytes.Equal(currentCACrt, newCACrt) {
+	if string(currentCACrt) == string(newCACrt) {
+		if err := ValidateKeyPair(secret.Data[keyKey], secret.Data[crtKey], cfg, 30*ValidityOneDay); err == nil {
+			util.Logloud("ValidateKeyPair - valid - "+secret.Name, "", "")
+			return nil
+		}
+		util.Logloud("ValidateKeyPair - not valid - "+secret.Name, "", "")
+	} else {
+		util.Logloud("ValidateKeyPair - ca certs not equal - "+secret.Name, "", "")
+	}
+
 	certBytes, keyBytes, _, err := signCertificate(cfg, ca, opts)
 	if err != nil {
 		return fmt.Errorf("error signing cert(cn=%s,o=%v): %w", cn, org, err)
 	}
-	secret.Data[crtKey] = certBytes
-	secret.Data[keyKey] = keyBytes
+	secret.Data[crtKey] = certBytes // tls.cert
+	secret.Data[keyKey] = keyBytes  // tls.key
 	return nil
 }
 

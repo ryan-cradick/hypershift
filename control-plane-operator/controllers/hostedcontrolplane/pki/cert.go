@@ -18,6 +18,7 @@ var (
 	X509SignerUsage  = X509DefaultUsage | x509.KeyUsageCertSign
 )
 
+// RKC 4 - reconcileSignedCert
 func reconcileSignedCert(secret *corev1.Secret, ca *corev1.Secret, ownerRef config.OwnerRef, cn string, org []string, extUsages []x509.ExtKeyUsage) error {
 	return reconcileSignedCertWithKeys(secret, ca, ownerRef, cn, org, extUsages, corev1.TLSCertKey, corev1.TLSPrivateKeyKey, certs.CASignerCertMapKey)
 }

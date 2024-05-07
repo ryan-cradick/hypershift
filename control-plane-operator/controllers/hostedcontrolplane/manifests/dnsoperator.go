@@ -6,6 +6,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
+// RKC DNS operator kubeconfig secret
 // DNSOperatorKubeconfig returns a stub secret, with name and namespace, for the
 // DNS operator's kubeconfig.
 func DNSOperatorKubeconfig(ns string) *corev1.Secret {

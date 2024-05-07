@@ -14,9 +14,11 @@ import (
 	"net/http"
 	"os"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
+	"github.com/go-logr/logr"
 	hyperv1 "github.com/openshift/hypershift/api/hypershift/v1beta1"
 	"github.com/openshift/hypershift/cmd/util"
 
@@ -37,6 +39,21 @@ const (
 	HostedClustersScopeAnnotation            = "hypershift.openshift.io/scope"
 	HostedClusterAnnotation                  = "hypershift.openshift.io/cluster"
 )
+
+// RKC Logloud
+var Rlogger logr.Logger
+
+func Logloud(msg, data1, data2 string) {
+	if Rlogger != (logr.Logger{}) {
+		Rlogger.Info("---LOGRKC--->>>---" + msg + "---" + strconv.FormatBool(data1 == data2) + "---")
+		if data1 != "" {
+			Rlogger.Info("---LOGRKC---DA1---" + data1 + "---")
+		}
+		if data2 != "" {
+			Rlogger.Info("---LOGRKC---DA2---" + data2 + "---")
+		}
+	}
+}
 
 // ParseNamespacedName expects a string with the format "namespace/name"
 // and returns the proper types.NamespacedName.

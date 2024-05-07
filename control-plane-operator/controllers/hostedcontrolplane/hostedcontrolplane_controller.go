@@ -914,6 +914,7 @@ func IsStorageAndCSIManaged(hostedControlPlane *hyperv1.HostedControlPlane) bool
 }
 
 func (r *HostedControlPlaneReconciler) reconcile(ctx context.Context, hostedControlPlane *hyperv1.HostedControlPlane, createOrUpdate upsert.CreateOrUpdateFN, releaseImageProvider *imageprovider.ReleaseImageProvider, infraStatus InfrastructureStatus) error {
+
 	// releaseImage might be overriden by spec.controlPlaneReleaseImage
 	// User facing components should reflect the version from spec.releaseImage
 	pullSecret := common.PullSecret(hostedControlPlane.Namespace)
@@ -937,6 +938,7 @@ func (r *HostedControlPlaneReconciler) reconcile(ctx context.Context, hostedCont
 		return err
 	}
 
+	// RKC Reconciling PKI
 	// Reconcile PKI
 	if _, exists := hostedControlPlane.Annotations[hyperv1.DisablePKIReconciliationAnnotation]; !exists {
 		r.Log.Info("Reconciling PKI")
@@ -1124,6 +1126,7 @@ func (r *HostedControlPlaneReconciler) reconcile(ctx context.Context, hostedCont
 		return fmt.Errorf("failed to reconcile cluster node tuning operator: %w", err)
 	}
 
+	// RKC 1 - Reconciling DNSOperator
 	r.Log.Info("Reconciling DNSOperator")
 	if err := r.reconcileDNSOperator(ctx, hostedControlPlane, releaseImageProvider, userReleaseImageProvider, createOrUpdate); err != nil {
 		return fmt.Errorf("failed to reconcile DNS operator: %w", err)
@@ -3458,26 +3461,46 @@ func (r *HostedControlPlaneReconciler) reconcileClusterNodeTuningOperator(ctx co
 	return nil
 }
 
+// RKC 2 - Reconciling DNSOperator
 // reconcileDNSOperator ensures that the management cluster has the expected DNS
 // operator deployment and kubeconfig secret for the hosted cluster.
 func (r *HostedControlPlaneReconciler) reconcileDNSOperator(ctx context.Context, hcp *hyperv1.HostedControlPlane, releaseImageProvider *imageprovider.ReleaseImageProvider, userReleaseImageProvider *imageprovider.ReleaseImageProvider, createOrUpdate upsert.CreateOrUpdateFN) error {
 	p := dnsoperator.NewParams(hcp, userReleaseImageProvider.Version(), releaseImageProvider, userReleaseImageProvider, r.SetDefaultSecurityContext)
+	util.Rlogger = r.Log
 
+	// Read the existing DNSOperatorKubeconfig
+	currentKubeconfigSecret := manifests.DNSOperatorKubeconfig(hcp.Namespace)
+	if err := r.Client.Get(ctx, client.ObjectKeyFromObject(currentKubeconfigSecret), currentKubeconfigSecret); err != nil {
+		util.Logloud("failed to get current dns-operator-kubeconfig: "+err.Error(), "", "")
+	}
+
+	// Read in the root CA
 	rootCA := manifests.RootCAConfigMap(hcp.Namespace)
 	if err := r.Client.Get(ctx, client.ObjectKeyFromObject(rootCA), rootCA); err != nil {
 		return err
 	}
 
-	csrSigner := manifests.CSRSignerCASecret(hcp.Namespace)
+	// read in the CA Signer cert
+	csrSigner := manifests.CSRSignerCASecret(hcp.Namespace) // cluster-signer-ca
 	if err := r.Client.Get(ctx, client.ObjectKeyFromObject(csrSigner), csrSigner); err != nil {
 		return err
 	}
 
+	// RKC This is the one that doesn't get reconciled correctly
 	kubeconfig := manifests.DNSOperatorKubeconfig(hcp.Namespace)
 	if _, err := createOrUpdate(ctx, r, kubeconfig, func() error {
-		return pki.ReconcileServiceAccountKubeconfig(kubeconfig, csrSigner, rootCA, hcp, "openshift-dns-operator", "dns-operator")
+		// servcie account namespace, service account name
+		return pki.ReconcileServiceAccountKubeconfigRyan(kubeconfig, csrSigner, rootCA, hcp, "openshift-dns-operator", "dns-operator", r.Log)
 	}); err != nil {
 		return fmt.Errorf("failed to reconcile dnsoperator kubeconfig: %w", err)
+	}
+
+	if currentKubeconfigSecret.Data == nil {
+		util.Logloud("reconciled ServiceAccountKubeconfig - current secret had no data", "1", "0")
+	} else {
+		originalKubeconfigstr := string(currentKubeconfigSecret.Data[util.KubeconfigKey])
+		kubeconfigstr := string(kubeconfig.Data[util.KubeconfigKey])
+		util.Logloud("reconciled ServiceAccountKubeconfig - current secret had data", originalKubeconfigstr, kubeconfigstr)
 	}
 
 	deployment := manifests.DNSOperatorDeployment(hcp.Namespace)
@@ -3487,6 +3510,7 @@ func (r *HostedControlPlaneReconciler) reconcileDNSOperator(ctx context.Context,
 	}); err != nil {
 		return fmt.Errorf("failed to reconcile dnsoperator deployment: %w", err)
 	}
+
 	return nil
 }
 
@@ -3529,6 +3553,7 @@ func (r *HostedControlPlaneReconciler) reconcileIngressOperator(ctx context.Cont
 	return nil
 }
 
+// RKC reconcileCloudCredentialOperator - same path
 func (r *HostedControlPlaneReconciler) reconcileCloudCredentialOperator(ctx context.Context, hcp *hyperv1.HostedControlPlane, releaseImageProvider *imageprovider.ReleaseImageProvider, createOrUpdate upsert.CreateOrUpdateFN) error {
 	params := cco.NewParams(hcp, releaseImageProvider.Version(), releaseImageProvider, r.SetDefaultSecurityContext)
 
