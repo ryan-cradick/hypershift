@@ -79,6 +79,7 @@ func NewParams(hcp *hyperv1.HostedControlPlane, version string, releaseImageProv
 	return p
 }
 
+// RKC ReconcileDeployment
 // ReconcileDeployment reconciles a deployment of the DNS operator, which runs
 // in the management cluster and manages operands in a hosted cluster.  For
 // non-HyperShift clusters, the DNS operator is deployed by

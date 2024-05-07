@@ -239,6 +239,7 @@ func createOrUpdateWithDelayForScrapeConfigs(hcp *hyperv1.HostedControlPlane, up
 		// Meeting this condition is equivalent to reach 'Complete' progress on the corresponding hosted cluster
 		if isScrapeConfig(obj) && !isClusterVersionAvailable(hcp) {
 			log := ctrl.LoggerFrom(ctx)
+			// RKC skilling creation/update of scrape config
 			log.Info("Skipping creation/update of scrape config as "+string(hyperv1.ClusterVersionAvailable)+" condition is not yet met", "scrapeConfig", obj)
 
 			return controllerutil.OperationResultNone, nil
@@ -913,7 +914,9 @@ func IsStorageAndCSIManaged(hostedControlPlane *hyperv1.HostedControlPlane) bool
 	return true
 }
 
+// RKC reconcile
 func (r *HostedControlPlaneReconciler) reconcile(ctx context.Context, hostedControlPlane *hyperv1.HostedControlPlane, createOrUpdate upsert.CreateOrUpdateFN, releaseImageProvider *imageprovider.ReleaseImageProvider, infraStatus InfrastructureStatus) error {
+
 	// releaseImage might be overriden by spec.controlPlaneReleaseImage
 	// User facing components should reflect the version from spec.releaseImage
 	pullSecret := common.PullSecret(hostedControlPlane.Namespace)
@@ -1124,6 +1127,7 @@ func (r *HostedControlPlaneReconciler) reconcile(ctx context.Context, hostedCont
 		return fmt.Errorf("failed to reconcile cluster node tuning operator: %w", err)
 	}
 
+	// RKC Reconciling DNSOperator
 	r.Log.Info("Reconciling DNSOperator")
 	if err := r.reconcileDNSOperator(ctx, hostedControlPlane, releaseImageProvider, userReleaseImageProvider, createOrUpdate); err != nil {
 		return fmt.Errorf("failed to reconcile DNS operator: %w", err)
@@ -3458,6 +3462,13 @@ func (r *HostedControlPlaneReconciler) reconcileClusterNodeTuningOperator(ctx co
 	return nil
 }
 
+var (
+	lastRootCA     = ""
+	lastCSRSigner  = ""
+	lastkubeconfig = ""
+	lastDeployment = ""
+)
+
 // reconcileDNSOperator ensures that the management cluster has the expected DNS
 // operator deployment and kubeconfig secret for the hosted cluster.
 func (r *HostedControlPlaneReconciler) reconcileDNSOperator(ctx context.Context, hcp *hyperv1.HostedControlPlane, releaseImageProvider *imageprovider.ReleaseImageProvider, userReleaseImageProvider *imageprovider.ReleaseImageProvider, createOrUpdate upsert.CreateOrUpdateFN) error {
@@ -3467,18 +3478,27 @@ func (r *HostedControlPlaneReconciler) reconcileDNSOperator(ctx context.Context,
 	if err := r.Client.Get(ctx, client.ObjectKeyFromObject(rootCA), rootCA); err != nil {
 		return err
 	}
+	// certificate chain
+	util.Logloud(r.Log, "manifests.RootCAConfigMap(hcp.Namespace)", lastRootCA, fmt.Sprint(rootCA.Data))
 
 	csrSigner := manifests.CSRSignerCASecret(hcp.Namespace)
 	if err := r.Client.Get(ctx, client.ObjectKeyFromObject(csrSigner), csrSigner); err != nil {
 		return err
 	}
+	// ca.cert, ca.key, signing hash
+	util.Logloud(r.Log, "manifests.CSRSignerCASecret(hcp.Namespace)", lastCSRSigner, fmt.Sprint(csrSigner))
 
+	// RKC
+	// This is the one that doesn't get reconciled correctly
 	kubeconfig := manifests.DNSOperatorKubeconfig(hcp.Namespace)
 	if _, err := createOrUpdate(ctx, r, kubeconfig, func() error {
-		return pki.ReconcileServiceAccountKubeconfig(kubeconfig, csrSigner, rootCA, hcp, "openshift-dns-operator", "dns-operator")
+		// servcie account namespace, service account name
+		return pki.ReconcileServiceAccountKubeconfigRyan(kubeconfig, csrSigner, rootCA, hcp, "openshift-dns-operator", "dns-operator", r.Log)
 	}); err != nil {
 		return fmt.Errorf("failed to reconcile dnsoperator kubeconfig: %w", err)
 	}
+	kubeconfigstr := string(kubeconfig.Data[util.KubeconfigKey])
+	util.Logloud(r.Log, "reconciled ServiceAccountKubeconfig", lastkubeconfig, kubeconfigstr)
 
 	deployment := manifests.DNSOperatorDeployment(hcp.Namespace)
 	if _, err := createOrUpdate(ctx, r, deployment, func() error {
@@ -3487,6 +3507,13 @@ func (r *HostedControlPlaneReconciler) reconcileDNSOperator(ctx context.Context,
 	}); err != nil {
 		return fmt.Errorf("failed to reconcile dnsoperator deployment: %w", err)
 	}
+	util.Logloud(r.Log, "reconciled dnsoperator deployment", lastDeployment, fmt.Sprint(deployment))
+
+	lastRootCA = fmt.Sprint(rootCA.Data)
+	lastCSRSigner = fmt.Sprint(csrSigner)
+	lastkubeconfig = kubeconfigstr
+	lastDeployment = fmt.Sprint(deployment)
+
 	return nil
 }
 
