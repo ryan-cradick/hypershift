@@ -18,6 +18,7 @@ import (
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
+	"github.com/openshift/hypershift/support/util"
 	"github.com/pkg/errors"
 	corev1 "k8s.io/api/core/v1"
 	utilerrors "k8s.io/apimachinery/pkg/util/errors"
@@ -364,9 +365,12 @@ func ReconcileSignedCert(
 		DNSNames:     dnsNames,
 		IPAddresses:  ipAddresses,
 	}
+	// RKC issue?
 	if err := ValidateKeyPair(secret.Data[keyKey], secret.Data[crtKey], cfg, 30*ValidityOneDay); err == nil {
+		util.Logloud("ValidateKeyPair - not valid", "", "")
 		return nil
 	}
+	util.Logloud("ValidateKeyPair - valid", "", "")
 	certBytes, keyBytes, _, err := signCertificate(cfg, ca, opts)
 	if err != nil {
 		return fmt.Errorf("error signing cert(cn=%s,o=%v): %w", cn, org, err)

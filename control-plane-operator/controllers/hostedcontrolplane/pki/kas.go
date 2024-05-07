@@ -10,6 +10,7 @@ import (
 	"k8s.io/apiserver/pkg/authentication/serviceaccount"
 	clientcmdapi "k8s.io/client-go/tools/clientcmd/api"
 
+	"github.com/go-logr/logr"
 	hyperv1 "github.com/openshift/hypershift/api/hypershift/v1beta1"
 	"github.com/openshift/hypershift/control-plane-operator/controllers/hostedcontrolplane/manifests"
 	"github.com/openshift/hypershift/support/certs"
@@ -90,6 +91,21 @@ func ReconcileSystemAdminClientCertSecret(secret, ca *corev1.Secret, ownerRef co
 	return reconcileSignedCert(secret, ca, ownerRef, "system:admin", []string{"system:masters"}, X509UsageClientAuth)
 }
 
+// RKC ReconcileServiceAccountKubeconfigRyan
+func ReconcileServiceAccountKubeconfigRyan(secret, csrSigner *corev1.Secret, ca *corev1.ConfigMap, hcp *hyperv1.HostedControlPlane, serviceAccountNamespace, serviceAccountName string, l logr.Logger) error {
+
+	cn := serviceaccount.MakeUsername(serviceAccountNamespace, serviceAccountName)
+	if err := reconcileSignedCert(secret, csrSigner, config.OwnerRef{}, cn, serviceaccount.MakeGroupNames(serviceAccountNamespace), X509UsageClientAuth); err != nil {
+		util.Logloud("ReconcileServiceAccountKubeconfigRyan - Failed", "", "")
+		return fmt.Errorf("failed to reconcile serviceaccount client cert: %w", err)
+	}
+
+	util.Logloud("ReconcileServiceAccountKubeconfigRyan - Success", "", "")
+
+	svcURL := inClusterKASURL(hcp.Spec.Platform.Type)
+	return ReconcileKubeConfig(secret, secret, ca, svcURL, "", manifests.KubeconfigScopeLocal, config.OwnerRef{})
+}
+
 func ReconcileServiceAccountKubeconfig(secret, csrSigner *corev1.Secret, ca *corev1.ConfigMap, hcp *hyperv1.HostedControlPlane, serviceAccountNamespace, serviceAccountName string) error {
 	cn := serviceaccount.MakeUsername(serviceAccountNamespace, serviceAccountName)
 	if err := reconcileSignedCert(secret, csrSigner, config.OwnerRef{}, cn, serviceaccount.MakeGroupNames(serviceAccountNamespace), X509UsageClientAuth); err != nil {
@@ -103,6 +119,7 @@ func isNumericIP(s string) bool {
 	return net.ParseIP(s) != nil
 }
 
+// RKC ReconcileKubeConfig
 func ReconcileKubeConfig(secret, cert *corev1.Secret, ca *corev1.ConfigMap, url string, key string, scope manifests.KubeconfigScope, ownerRef config.OwnerRef) error {
 	ownerRef.ApplyTo(secret)
 	caPEM := ca.Data[certs.CASignerCertMapKey]
