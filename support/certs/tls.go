@@ -318,7 +318,8 @@ func ValidateKeyPair(pemKey, pemCertificate []byte, cfg *CertCfg, minimumRemaini
 }
 
 // ReconcileSignedCert reconciles a certificate secret using the provided config. It will
-// rotate the cert if there are less than 30 days of validity left.
+// rotate the cert if there are less than 30 days of validity left. The cert will be also
+// be re-signed if the CA signer certificate is different than the secrets.
 func ReconcileSignedCert(
 	secret *corev1.Secret,
 	ca *corev1.Secret,
@@ -352,6 +353,8 @@ func ReconcileSignedCert(
 	if secret.Data == nil {
 		secret.Data = map[string][]byte{}
 	}
+
+	priorSecretCACert := secret.Data[caKey]
 	if caKey != "" {
 		secret.Data[caKey] = append([]byte(nil), ca.Data[opts.CASignerCertMapKey]...)
 	}
@@ -364,8 +367,12 @@ func ReconcileSignedCert(
 		DNSNames:     dnsNames,
 		IPAddresses:  ipAddresses,
 	}
-	if err := ValidateKeyPair(secret.Data[keyKey], secret.Data[crtKey], cfg, 30*ValidityOneDay); err == nil {
-		return nil
+
+	// Don't resign the certificate if the ca.crt didn't change and the key pair is still valid
+	if string(priorSecretCACert) == string(ca.Data[opts.CASignerCertMapKey]) {
+		if err := ValidateKeyPair(secret.Data[keyKey], secret.Data[crtKey], cfg, 30*ValidityOneDay); err == nil {
+			return nil
+		}
 	}
 	certBytes, keyBytes, _, err := signCertificate(cfg, ca, opts)
 	if err != nil {
