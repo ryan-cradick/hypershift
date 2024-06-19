@@ -32,6 +32,7 @@ func TestReconcileSignedCertWithKeysAndAddresses(t *testing.T) {
 	testCases := []struct {
 		name         string
 		secret       func() (*corev1.Secret, error)
+		caCrtSame    bool
 		expectUpdate bool
 	}{
 		{
@@ -56,7 +57,33 @@ func TestReconcileSignedCertWithKeysAndAddresses(t *testing.T) {
 					},
 				}, nil
 			},
+			caCrtSame:    true,
 			expectUpdate: false,
+		},
+		{
+			name: "Valid secret, different ca.crt",
+			secret: func() (*corev1.Secret, error) {
+				cfg := &certs.CertCfg{
+					Subject:      pkix.Name{CommonName: "foo", Organization: []string{"org"}},
+					KeyUsages:    x509.KeyUsageKeyEncipherment | x509.KeyUsageDigitalSignature,
+					ExtKeyUsages: X509UsageServerAuth,
+					Validity:     certs.ValidityOneYear,
+					DNSNames:     []string{"foo.svc.local"},
+					IPAddresses:  []net.IP{net.IPv4(127, 0, 0, 1)},
+				}
+				key, cert, err := certs.GenerateSignedCertificate(caKey, caCert, cfg)
+				if err != nil {
+					return nil, err
+				}
+				return &corev1.Secret{
+					Data: map[string][]byte{
+						corev1.TLSPrivateKeyKey: certs.PrivateKeyToPem(key),
+						corev1.TLSCertKey:       certs.CertToPem(cert),
+					},
+				}, nil
+			},
+			caCrtSame:    false,
+			expectUpdate: true,
 		},
 		{
 			name: "Expires in one day, cert is re-generated",
@@ -80,6 +107,7 @@ func TestReconcileSignedCertWithKeysAndAddresses(t *testing.T) {
 					},
 				}, nil
 			},
+			caCrtSame:    true,
 			expectUpdate: true,
 		},
 		{
@@ -87,6 +115,7 @@ func TestReconcileSignedCertWithKeysAndAddresses(t *testing.T) {
 			secret: func() (*corev1.Secret, error) {
 				return &corev1.Secret{}, nil
 			},
+			caCrtSame:    false,
 			expectUpdate: true,
 		},
 		{
@@ -99,6 +128,7 @@ func TestReconcileSignedCertWithKeysAndAddresses(t *testing.T) {
 					},
 				}, nil
 			},
+			caCrtSame:    true,
 			expectUpdate: true,
 		},
 	}
@@ -112,19 +142,11 @@ func TestReconcileSignedCertWithKeysAndAddresses(t *testing.T) {
 			}
 			initialKey, initalCert := secret.Data[corev1.TLSPrivateKeyKey], secret.Data[corev1.TLSCertKey]
 
-			if err := reconcileSignedCertWithKeysAndAddresses(
-				secret,
-				caSecret,
-				config.OwnerRef{},
-				"foo",
-				[]string{"org"},
-				X509UsageServerAuth,
-				corev1.TLSCertKey,
-				corev1.TLSPrivateKeyKey,
-				certs.CASignerCertMapKey,
-				[]string{"foo.svc.local"},
-				[]string{"127.0.0.1"},
-			); err != nil {
+			if tc.caCrtSame {
+				secret.Data[certs.CASignerCertMapKey] = caSecret.Data[certs.CASignerCertMapKey]
+			}
+
+			if err := reconcileSignedCertWithKeysAndAddresses(secret, caSecret, config.OwnerRef{}, "foo", []string{"org"}, X509UsageServerAuth, corev1.TLSCertKey, corev1.TLSPrivateKeyKey, certs.CASignerCertMapKey, []string{"foo.svc.local"}, []string{"127.0.0.1"}); err != nil {
 				t.Fatalf("reconcileSignedCertWithKeysAndAddresses failed: %v", err)
 			}
 
