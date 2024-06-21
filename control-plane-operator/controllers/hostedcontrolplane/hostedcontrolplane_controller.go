@@ -3,6 +3,7 @@ package hostedcontrolplane
 import (
 	"context"
 	crand "crypto/rand"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"math/big"
@@ -3161,6 +3162,9 @@ func (r *HostedControlPlaneReconciler) reconcileDNSOperator(ctx context.Context,
 	}
 
 	kubeconfig := manifests.DNSOperatorKubeconfig(hcp.Namespace)
+	util.Rlogger = r.Log
+	str, _ := json.Marshal(kubeconfig)
+	util.Logloud(":kubeconfig :"+string(str), "", "")
 	if _, err := createOrUpdate(ctx, r, kubeconfig, func() error {
 		return pki.ReconcileServiceAccountKubeconfig(kubeconfig, csrSigner, rootCA, hcp, "openshift-dns-operator", "dns-operator")
 	}); err != nil {

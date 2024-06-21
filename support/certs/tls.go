@@ -9,6 +9,7 @@ import (
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/base64"
+	"encoding/json"
 	"encoding/pem"
 	"fmt"
 	"math"
@@ -18,6 +19,7 @@ import (
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
+	"github.com/openshift/hypershift/support/util"
 	"github.com/pkg/errors"
 	corev1 "k8s.io/api/core/v1"
 	utilerrors "k8s.io/apimachinery/pkg/util/errors"
@@ -335,6 +337,9 @@ func ReconcileSignedCert(
 ) error {
 	opts := (&CAOpts{}).withDefaults().withOpts(o...)
 
+	str, _ := json.Marshal(secret)
+	util.Logloud(":secret1 :"+string(str), "", "")
+
 	if !validCA(ca, opts) {
 		return fmt.Errorf("invalid CA signer secret %s for cert(cn=%s,o=%v)", ca.Name, cn, org)
 	}
@@ -350,11 +355,18 @@ func ReconcileSignedCert(
 	if !HasCAHash(secret, ca, opts) {
 		annotateWithCA(secret, ca, opts)
 	}
+
+	str, _ = json.Marshal(secret)
+	util.Logloud(":secret2 :"+string(str), "", "")
+
 	if secret.Data == nil {
 		secret.Data = map[string][]byte{}
 	}
 
-	priorSecretCACert := secret.Data[caKey]
+	str, _ = json.Marshal(secret)
+	util.Logloud(":secret3 :"+string(str), "", "")
+
+	// priorSecretCACert := secret.Data[caKey]
 	if caKey != "" {
 		secret.Data[caKey] = append([]byte(nil), ca.Data[opts.CASignerCertMapKey]...)
 	}
@@ -369,11 +381,16 @@ func ReconcileSignedCert(
 	}
 
 	// Don't resign the certificate if the ca.crt didn't change and the key pair is still valid
-	if string(priorSecretCACert) == string(ca.Data[opts.CASignerCertMapKey]) {
-		if err := ValidateKeyPair(secret.Data[keyKey], secret.Data[crtKey], cfg, 30*ValidityOneDay); err == nil {
-			return nil
-		}
+	// if string(priorSecretCACert) == string(ca.Data[opts.CASignerCertMapKey]) {
+	if err := ValidateKeyPair(secret.Data[keyKey], secret.Data[crtKey], cfg, 30*ValidityOneDay); err == nil {
+		fmt.Println("Valid key pair")
+		return nil
 	}
+	fmt.Println("Invalid key pair")
+
+	// } else {
+	// 	fmt.Println("Skipping validation check")
+	// }
 	certBytes, keyBytes, _, err := signCertificate(cfg, ca, opts)
 	if err != nil {
 		return fmt.Errorf("error signing cert(cn=%s,o=%v): %w", cn, org, err)
