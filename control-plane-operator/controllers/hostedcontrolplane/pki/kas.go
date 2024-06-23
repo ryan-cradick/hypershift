@@ -1,6 +1,7 @@
 package pki
 
 import (
+	"encoding/json"
 	"fmt"
 	"net"
 
@@ -90,6 +91,11 @@ func ReconcileSystemAdminClientCertSecret(secret, ca *corev1.Secret, ownerRef co
 }
 
 func ReconcileServiceAccountKubeconfig(secret, csrSigner *corev1.Secret, ca *corev1.ConfigMap, hcp *hyperv1.HostedControlPlane, serviceAccountNamespace, serviceAccountName string) error {
+	// RKC 2
+	str, _ := json.Marshal(secret)
+	util.Logloud("[["+secret.Name+"---secret-2]]", string(str), util.LastSecretValue)
+	util.LastSecretValue = string(str)
+
 	cn := serviceaccount.MakeUsername(serviceAccountNamespace, serviceAccountName)
 	if err := reconcileSignedCert(secret, csrSigner, config.OwnerRef{}, cn, serviceaccount.MakeGroupNames(serviceAccountNamespace), X509UsageClientAuth); err != nil {
 		return fmt.Errorf("failed to reconcile serviceaccount client cert: %w", err)

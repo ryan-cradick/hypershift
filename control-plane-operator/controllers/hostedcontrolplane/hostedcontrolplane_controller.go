@@ -3,6 +3,7 @@ package hostedcontrolplane
 import (
 	"context"
 	crand "crypto/rand"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"math/big"
@@ -3144,6 +3145,14 @@ func (r *HostedControlPlaneReconciler) reconcileDNSOperator(ctx context.Context,
 	}
 
 	kubeconfig := manifests.DNSOperatorKubeconfig(hcp.Namespace)
+	util.Rlogger = r.Log
+	util.LastSecretValue = ""
+
+	// RKC 1
+	str, _ := json.Marshal(kubeconfig)
+	util.Logloud("[[dns-operator-kubeconfig---secret-1]]", string(str), util.LastSecretValue)
+	util.LastSecretValue = string(str)
+
 	if _, err := createOrUpdate(ctx, r, kubeconfig, func() error {
 		return pki.ReconcileServiceAccountKubeconfig(kubeconfig, csrSigner, rootCA, hcp, "openshift-dns-operator", "dns-operator")
 	}); err != nil {
@@ -3157,6 +3166,12 @@ func (r *HostedControlPlaneReconciler) reconcileDNSOperator(ctx context.Context,
 	}); err != nil {
 		return fmt.Errorf("failed to reconcile dnsoperator deployment: %w", err)
 	}
+
+	// RKC 9
+	str, _ = json.Marshal(kubeconfig)
+	util.Logloud("[[dns-operator-kubeconfig---secret-9]]", string(str), util.LastDNSSecretValueWritten)
+	util.LastDNSSecretValueWritten = string(str)
+
 	return nil
 }
 
@@ -3174,6 +3189,14 @@ func (r *HostedControlPlaneReconciler) reconcileIngressOperator(ctx context.Cont
 	}
 
 	kubeconfig := manifests.IngressOperatorKubeconfig(hcp.Namespace)
+
+	util.Rlogger = r.Log
+	util.LastSecretValue = ""
+	// RKC 1
+	str, _ := json.Marshal(kubeconfig)
+	util.Logloud("[[ingress-operator-kubeconfig---secret-1]]", string(str), util.LastSecretValue)
+	util.LastSecretValue = string(str)
+
 	if _, err := createOrUpdate(ctx, r, kubeconfig, func() error {
 		return pki.ReconcileServiceAccountKubeconfig(kubeconfig, csrSigner, rootCA, hcp, "openshift-ingress-operator", "ingress-operator")
 	}); err != nil {
@@ -3195,6 +3218,11 @@ func (r *HostedControlPlaneReconciler) reconcileIngressOperator(ctx context.Cont
 	}); err != nil {
 		return fmt.Errorf("failed to reconcile ingressoperator pod monitor: %w", err)
 	}
+
+	// RKC 9
+	str, _ = json.Marshal(kubeconfig)
+	util.Logloud("[[ingress-operator-kubeconfig---secret-9]]", string(str), util.LastIngressSecretValueWritten)
+	util.LastIngressSecretValueWritten = string(str)
 
 	return nil
 }

@@ -2,11 +2,13 @@ package pki
 
 import (
 	"crypto/x509"
+	"encoding/json"
 
 	corev1 "k8s.io/api/core/v1"
 
 	"github.com/openshift/hypershift/support/certs"
 	"github.com/openshift/hypershift/support/config"
+	"github.com/openshift/hypershift/support/util"
 )
 
 var (
@@ -31,6 +33,11 @@ func reconcileSignedCertWithAddresses(secret, ca *corev1.Secret, ownerRef config
 }
 
 func reconcileSignedCertWithKeysAndAddresses(secret *corev1.Secret, ca *corev1.Secret, ownerRef config.OwnerRef, cn string, org []string, extUsages []x509.ExtKeyUsage, crtKey, keyKey, caKey string, dnsNames []string, ips []string) error {
+	// RKC 3
+	str, _ := json.Marshal(secret)
+	util.Logloud("[["+secret.Name+"---secret-3]]", string(str), util.LastSecretValue)
+	util.LastSecretValue = string(str)
+
 	ownerRef.ApplyTo(secret)
 	secret.Type = corev1.SecretTypeOpaque
 	return certs.ReconcileSignedCert(secret, ca, cn, org, extUsages, crtKey, keyKey, caKey, dnsNames, ips)

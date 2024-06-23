@@ -14,9 +14,11 @@ import (
 	"net/http"
 	"os"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
+	"github.com/go-logr/logr"
 	hyperv1 "github.com/openshift/hypershift/api/hypershift/v1beta1"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -401,4 +403,20 @@ func getHostedClusterScopeAnnotation(obj client.Object, r client.Reader) string 
 		return hcluster.GetAnnotations()[HostedClustersScopeAnnotation]
 	}
 	return ""
+}
+
+// RKC Logloud
+var Rlogger logr.Logger
+var LastSecretValue string
+var LastDNSSecretValueWritten string
+var LastIngressSecretValueWritten string
+
+func Logloud(msg, data1, data2 string) {
+	if Rlogger != (logr.Logger{}) {
+		Rlogger.Info("---LOGRKC--->>>---" + msg + "---" + strconv.FormatBool(data1 == data2) + "---")
+		if data1 != data2 {
+			Rlogger.Info("---LOGRKC---DA2---" + data2 + "---")
+			Rlogger.Info("---LOGRKC---DA1---" + data1 + "---")
+		}
+	}
 }
