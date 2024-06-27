@@ -3133,22 +3133,24 @@ func (r *HostedControlPlaneReconciler) reconcileClusterNodeTuningOperator(ctx co
 func (r *HostedControlPlaneReconciler) reconcileDNSOperator(ctx context.Context, hcp *hyperv1.HostedControlPlane, releaseImageProvider *imageprovider.ReleaseImageProvider, userReleaseImageProvider *imageprovider.ReleaseImageProvider, createOrUpdate upsert.CreateOrUpdateFN) error {
 	p := dnsoperator.NewParams(hcp, userReleaseImageProvider.Version(), releaseImageProvider, userReleaseImageProvider, r.SetDefaultSecurityContext)
 
-	rootCA := manifests.RootCAConfigMap(hcp.Namespace)
-	if err := r.Client.Get(ctx, client.ObjectKeyFromObject(rootCA), rootCA); err != nil {
-		return err
-	}
+	r.Log.Info("---LOGRKC--- Not reconcilling dns-operator-kubeconfig ---")
 
-	csrSigner := manifests.CSRSignerCASecret(hcp.Namespace)
-	if err := r.Client.Get(ctx, client.ObjectKeyFromObject(csrSigner), csrSigner); err != nil {
-		return err
-	}
+	// rootCA := manifests.RootCAConfigMap(hcp.Namespace)
+	// if err := r.Client.Get(ctx, client.ObjectKeyFromObject(rootCA), rootCA); err != nil {
+	// 	return err
+	// }
 
-	kubeconfig := manifests.DNSOperatorKubeconfig(hcp.Namespace)
-	if _, err := createOrUpdate(ctx, r, kubeconfig, func() error {
-		return pki.ReconcileServiceAccountKubeconfig(kubeconfig, csrSigner, rootCA, hcp, "openshift-dns-operator", "dns-operator")
-	}); err != nil {
-		return fmt.Errorf("failed to reconcile dnsoperator kubeconfig: %w", err)
-	}
+	// csrSigner := manifests.CSRSignerCASecret(hcp.Namespace)
+	// if err := r.Client.Get(ctx, client.ObjectKeyFromObject(csrSigner), csrSigner); err != nil {
+	// 	return err
+	// }
+
+	// kubeconfig := manifests.DNSOperatorKubeconfig(hcp.Namespace)
+	// if _, err := createOrUpdate(ctx, r, kubeconfig, func() error {
+	// 	return pki.ReconcileServiceAccountKubeconfig(kubeconfig, csrSigner, rootCA, hcp, "openshift-dns-operator", "dns-operator")
+	// }); err != nil {
+	// 	return fmt.Errorf("failed to reconcile dnsoperator kubeconfig: %w", err)
+	// }
 
 	deployment := manifests.DNSOperatorDeployment(hcp.Namespace)
 	if _, err := createOrUpdate(ctx, r, deployment, func() error {
@@ -3163,22 +3165,24 @@ func (r *HostedControlPlaneReconciler) reconcileDNSOperator(ctx context.Context,
 func (r *HostedControlPlaneReconciler) reconcileIngressOperator(ctx context.Context, hcp *hyperv1.HostedControlPlane, releaseImageProvider *imageprovider.ReleaseImageProvider, userReleaseImageProvider *imageprovider.ReleaseImageProvider, createOrUpdate upsert.CreateOrUpdateFN) error {
 	p := ingressoperator.NewParams(hcp, userReleaseImageProvider.Version(), releaseImageProvider, userReleaseImageProvider, r.SetDefaultSecurityContext, hcp.Spec.Platform.Type)
 
-	rootCA := manifests.RootCAConfigMap(hcp.Namespace)
-	if err := r.Client.Get(ctx, client.ObjectKeyFromObject(rootCA), rootCA); err != nil {
-		return err
-	}
+	r.Log.Info("---LOGRKC--- Not reconcilling ingress-operator-kubeconfig ---")
 
-	csrSigner := manifests.CSRSignerCASecret(hcp.Namespace)
-	if err := r.Client.Get(ctx, client.ObjectKeyFromObject(csrSigner), csrSigner); err != nil {
-		return err
-	}
+	// rootCA := manifests.RootCAConfigMap(hcp.Namespace)
+	// if err := r.Client.Get(ctx, client.ObjectKeyFromObject(rootCA), rootCA); err != nil {
+	// 	return err
+	// }
 
-	kubeconfig := manifests.IngressOperatorKubeconfig(hcp.Namespace)
-	if _, err := createOrUpdate(ctx, r, kubeconfig, func() error {
-		return pki.ReconcileServiceAccountKubeconfig(kubeconfig, csrSigner, rootCA, hcp, "openshift-ingress-operator", "ingress-operator")
-	}); err != nil {
-		return fmt.Errorf("failed to reconcile ingressoperator kubeconfig: %w", err)
-	}
+	// csrSigner := manifests.CSRSignerCASecret(hcp.Namespace)
+	// if err := r.Client.Get(ctx, client.ObjectKeyFromObject(csrSigner), csrSigner); err != nil {
+	// 	return err
+	// }
+
+	// kubeconfig := manifests.IngressOperatorKubeconfig(hcp.Namespace)
+	// if _, err := createOrUpdate(ctx, r, kubeconfig, func() error {
+	// 	return pki.ReconcileServiceAccountKubeconfig(kubeconfig, csrSigner, rootCA, hcp, "openshift-ingress-operator", "ingress-operator")
+	// }); err != nil {
+	// 	return fmt.Errorf("failed to reconcile ingressoperator kubeconfig: %w", err)
+	// }
 
 	deployment := manifests.IngressOperatorDeployment(hcp.Namespace)
 	if _, err := createOrUpdate(ctx, r, deployment, func() error {
