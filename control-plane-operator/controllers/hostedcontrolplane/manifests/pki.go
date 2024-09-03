@@ -16,6 +16,7 @@ func secretFor(ns, name string) *corev1.Secret {
 
 func RootCASecret(ns string) *corev1.Secret { return secretFor(ns, "root-ca") }
 
+// RKC cluster-signer-ca secret - This is what we use today
 func CSRSignerCASecret(ns string) *corev1.Secret { return secretFor(ns, "cluster-signer-ca") }
 
 func RootCAConfigMap(ns string) *corev1.ConfigMap {
@@ -63,6 +64,7 @@ func TotalClientCABundle(ns string) *corev1.ConfigMap {
 	}
 }
 
+// RKC - kubelet client CA bundle - This is what we should use?
 func KubeletClientCABundle(ns string) *corev1.ConfigMap {
 	return &corev1.ConfigMap{
 		ObjectMeta: metav1.ObjectMeta{

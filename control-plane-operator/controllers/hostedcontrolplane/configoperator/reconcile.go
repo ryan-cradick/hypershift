@@ -256,7 +256,7 @@ var (
 		hccContainerMain().Name: util.ContainerVolumeMounts{
 			hccVolumeKubeconfig().Name:      "/etc/kubernetes/kubeconfig",
 			hccVolumeRootCA().Name:          "/etc/kubernetes/root-ca",
-			hccVolumeClusterSignerCA().Name: "/etc/kubernetes/cluster-signer-ca",
+			hccVolumeClusterSignerCA().Name: "/etc/kubernetes/cluster-signer-ca", // RKC
 		},
 	}
 	hccLabels = map[string]string{
@@ -312,6 +312,7 @@ func ReconcileDeployment(deployment *appsv1.Deployment, image, hcpName, openShif
 				Volumes: []corev1.Volume{
 					util.BuildVolume(hccVolumeKubeconfig(), buildHCCVolumeKubeconfig),
 					util.BuildVolume(hccVolumeRootCA(), buildHCCVolumeRootCA),
+					// RKC
 					util.BuildVolume(hccVolumeClusterSignerCA(), buildHCCClusterSignerCA),
 				},
 				ServiceAccountName: manifests.ConfigOperatorServiceAccount("").Name,
@@ -372,6 +373,7 @@ func hccVolumeRootCA() *corev1.Volume {
 	}
 }
 
+// RKC - HCCO Cluster Signer CA Volume
 func hccVolumeClusterSignerCA() *corev1.Volume {
 	return &corev1.Volume{
 		Name: "cluster-signer-ca",
@@ -454,11 +456,11 @@ func buildHCCVolumeRootCA(v *corev1.Volume) {
 	v.ConfigMap.Name = manifests.RootCAConfigMap("").Name
 }
 
+// RKC - Build the cluster-signer-ca-bundle from the kublet-client-ca bundle
 func buildHCCClusterSignerCA(v *corev1.Volume) {
-	v.Secret = &corev1.SecretVolumeSource{
-		SecretName:  manifests.CSRSignerCASecret("").Name,
-		DefaultMode: pointer.Int32(0640),
-	}
+	v.ConfigMap = &corev1.ConfigMapVolumeSource{}
+	v.ConfigMap.DefaultMode = pointer.Int32(0640)
+	v.ConfigMap.Name = manifests.KubeletClientCABundle("").Name
 }
 
 func IsExternalInfraKv(hcp *hyperv1.HostedControlPlane) bool {
