@@ -55,6 +55,7 @@ func AggregatorClientCAConfigMap(ns string) *corev1.ConfigMap {
 	}
 }
 
+// RKC - Total Client Bundle
 func TotalClientCABundle(ns string) *corev1.ConfigMap {
 	return &corev1.ConfigMap{
 		ObjectMeta: metav1.ObjectMeta{

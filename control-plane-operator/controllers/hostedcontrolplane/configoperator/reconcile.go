@@ -460,7 +460,7 @@ func buildHCCVolumeRootCA(v *corev1.Volume) {
 func buildHCCClusterSignerCA(v *corev1.Volume) {
 	v.ConfigMap = &corev1.ConfigMapVolumeSource{}
 	v.ConfigMap.DefaultMode = pointer.Int32(0640)
-	v.ConfigMap.Name = manifests.KubeletClientCABundle("").Name
+	v.ConfigMap.Name = manifests.TotalClientCABundle("").Name
 }
 
 func IsExternalInfraKv(hcp *hyperv1.HostedControlPlane) bool {
