@@ -354,7 +354,6 @@ func (r *reconciler) Reconcile(ctx context.Context, _ ctrl.Request) (ctrl.Result
 		errs = append(errs, fmt.Errorf("failed to reconcile ingress controller: %w", err))
 	}
 
-	// RKC (A) HCCO create kubeletServingCAConfigMap - cluster signer CA
 	log.Info("reconciling kube control plane signer secret")
 	kubeControlPlaneSignerSecret := &corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{
@@ -369,7 +368,6 @@ func (r *reconciler) Reconcile(ctx context.Context, _ ctrl.Request) (ctrl.Result
 		errs = append(errs, fmt.Errorf("failed to reconcile the %s Secret: %w", client.ObjectKeyFromObject(kubeControlPlaneSignerSecret), err))
 	}
 
-	// RKC (A) HCCO create kubelet serving CA configmap - cluster signer CA
 	log.Info("reconciling kubelet serving CA configmap")
 	kubeletServingCAConfigMap := &corev1.ConfigMap{
 		ObjectMeta: metav1.ObjectMeta{
