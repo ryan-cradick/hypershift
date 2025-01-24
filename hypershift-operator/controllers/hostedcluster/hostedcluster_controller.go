@@ -4731,6 +4731,9 @@ func (r *HostedClusterReconciler) reconcileAWSSubnets(ctx context.Context, creat
 	return nil
 }
 
+var releaseImageCache map[string]*releaseinfo.ReleaseImage
+var count = 0
+
 func (r *HostedClusterReconciler) lookupReleaseImage(ctx context.Context, hcluster *hyperv1.HostedCluster, releaseProvider releaseinfo.ProviderWithOpenShiftImageRegistryOverrides) (*releaseinfo.ReleaseImage, error) {
 	var pullSecret corev1.Secret
 	if err := r.Client.Get(ctx, types.NamespacedName{Namespace: hcluster.Namespace, Name: hcluster.Spec.PullSecret.Name}, &pullSecret); err != nil {
@@ -4740,7 +4743,29 @@ func (r *HostedClusterReconciler) lookupReleaseImage(ctx context.Context, hclust
 	if !ok {
 		return nil, fmt.Errorf("expected %s key in pull secret", corev1.DockerConfigJsonKey)
 	}
-	return releaseProvider.Lookup(ctx, hyperutil.HCControlPlaneReleaseImage(hcluster), pullSecretBytes)
+
+	// RKC - Add simple cache
+	count++
+	if count > 500 {
+		log := ctrl.LoggerFrom(ctx)
+		log.Info(fmt.Sprintf("RKC - Clearing Cache: %d", len(releaseImageCache)))
+		count = 0
+		releaseImageCache = make(map[string]*releaseinfo.ReleaseImage)
+	}
+
+	imageName := hyperutil.HCControlPlaneReleaseImage(hcluster)
+	cacheKey := imageName + string(pullSecretBytes)
+	releaseImage, ok := releaseImageCache[cacheKey]
+	if ok {
+		return releaseImage, nil
+	}
+
+	releaseImage, err := releaseProvider.Lookup(ctx, imageName, pullSecretBytes)
+	if err != nil {
+		releaseImageCache[cacheKey] = releaseImage
+	}
+
+	return releaseImage, err
 }
 
 func (r *HostedClusterReconciler) isAutoscalingNeeded(ctx context.Context, hcluster *hyperv1.HostedCluster) (bool, error) {
