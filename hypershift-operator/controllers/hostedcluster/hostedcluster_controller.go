@@ -4754,15 +4754,15 @@ func (r *HostedClusterReconciler) lookupReleaseImage(ctx context.Context, hclust
 	}
 
 	imageName := hyperutil.HCControlPlaneReleaseImage(hcluster)
-	cacheKey := imageName + string(pullSecretBytes)
-	releaseImage, ok := releaseImageCache[cacheKey]
+	// TESTING ONLY - Cache assumes that the pull secret is valid
+	releaseImage, ok := releaseImageCache[imageName]
 	if ok {
 		return releaseImage, nil
 	}
 
 	releaseImage, err := releaseProvider.Lookup(ctx, imageName, pullSecretBytes)
 	if err != nil {
-		releaseImageCache[cacheKey] = releaseImage
+		releaseImageCache[imageName] = releaseImage
 	}
 
 	return releaseImage, err
