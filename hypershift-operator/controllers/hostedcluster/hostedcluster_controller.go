@@ -36,6 +36,7 @@ import (
 	"github.com/aws/aws-sdk-go/service/s3/s3iface"
 	"github.com/blang/semver"
 	"github.com/go-logr/logr"
+	"github.com/golang/groupcache/lru"
 	"github.com/google/uuid"
 	configv1 "github.com/openshift/api/config/v1"
 	routev1 "github.com/openshift/api/route/v1"
@@ -4731,7 +4732,7 @@ func (r *HostedClusterReconciler) reconcileAWSSubnets(ctx context.Context, creat
 	return nil
 }
 
-var releaseImageCache map[string]*releaseinfo.ReleaseImage
+var releaseImageCache = lru.New(500)
 var count = 0
 
 func (r *HostedClusterReconciler) lookupReleaseImage(ctx context.Context, hcluster *hyperv1.HostedCluster, releaseProvider releaseinfo.ProviderWithOpenShiftImageRegistryOverrides) (*releaseinfo.ReleaseImage, error) {
@@ -4744,28 +4745,29 @@ func (r *HostedClusterReconciler) lookupReleaseImage(ctx context.Context, hclust
 		return nil, fmt.Errorf("expected %s key in pull secret", corev1.DockerConfigJsonKey)
 	}
 
-	// RKC - Add simple cache
+	// RKC - Add cache
 	count++
 	if count > 500 {
 		log := ctrl.LoggerFrom(ctx)
-		log.Info(fmt.Sprintf("RKC - Clearing Cache: %d", len(releaseImageCache)))
+		log.Info(fmt.Sprintf("RKC - Cache update: %d", releaseImageCache.Len()))
 		count = 0
-		releaseImageCache = make(map[string]*releaseinfo.ReleaseImage)
 	}
 
 	imageName := hyperutil.HCControlPlaneReleaseImage(hcluster)
-	// TESTING ONLY - Cache assumes that the pull secret is valid
-	releaseImage, ok := releaseImageCache[imageName]
-	if ok {
-		return releaseImage, nil
+	psString := string(pullSecretBytes)
+	key := imageName+psString
+	releaseImage, exists := releaseImageCache.Get(key)
+	if exists && releaseImage != nil  {
+		return releaseImage.(*releaseinfo.ReleaseImage), nil
 	}
 
 	releaseImage, err := releaseProvider.Lookup(ctx, imageName, pullSecretBytes)
 	if err != nil {
-		releaseImageCache[imageName] = releaseImage
+		releaseImageCache.Add(key, releaseImage)
+		return releaseImage.(*releaseinfo.ReleaseImage), nil
 	}
 
-	return releaseImage, err
+	return nil, err
 }
 
 func (r *HostedClusterReconciler) isAutoscalingNeeded(ctx context.Context, hcluster *hyperv1.HostedCluster) (bool, error) {
