@@ -4763,11 +4763,11 @@ func (r *HostedClusterReconciler) lookupReleaseImage(ctx context.Context, hclust
 
 	releaseImage, err := releaseProvider.Lookup(ctx, imageName, pullSecretBytes)
 	if err != nil {
-		releaseImageCache.Add(key, releaseImage)
-		return releaseImage.(*releaseinfo.ReleaseImage), nil
+		return nil, err
 	}
 
-	return nil, err
+	releaseImageCache.Add(key, releaseImage)
+	return releaseImage.(*releaseinfo.ReleaseImage), nil
 }
 
 func (r *HostedClusterReconciler) isAutoscalingNeeded(ctx context.Context, hcluster *hyperv1.HostedCluster) (bool, error) {
