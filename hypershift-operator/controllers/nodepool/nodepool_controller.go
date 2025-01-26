@@ -173,7 +173,7 @@ func (r *NodePoolReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		Watches(&corev1.ConfigMap{}, handler.EnqueueRequestsFromMapFunc(r.enqueueNodePoolsForConfig), builder.WithPredicates(supportutil.PredicatesForHostedClusterAnnotationScoping(mgr.GetClient()))).
 		WithOptions(controller.Options{
 			RateLimiter:             workqueue.NewItemExponentialFailureRateLimiter(1*time.Second, 10*time.Second),
-			MaxConcurrentReconciles: 2,
+			MaxConcurrentReconciles: 1,
 		}).
 		Complete(r); err != nil {
 		return errors.Wrap(err, "failed setting up with a controller manager")
@@ -183,7 +183,7 @@ func (r *NodePoolReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		For(&corev1.Secret{}).
 		WithOptions(controller.Options{
 			RateLimiter:             workqueue.NewItemExponentialFailureRateLimiter(1*time.Second, 10*time.Second),
-			MaxConcurrentReconciles: 2,
+			MaxConcurrentReconciles: 1,
 		}).
 		Complete(&secretJanitor{
 			NodePoolReconciler: r,
