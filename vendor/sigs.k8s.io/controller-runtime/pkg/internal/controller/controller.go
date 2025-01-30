@@ -220,6 +220,8 @@ func (c *Controller) Start(ctx context.Context) error {
 				// Run a worker thread that just dequeues items, processes them, and marks them done.
 				// It enforces that the reconcileHandler is never invoked concurrently with the same object.
 				for c.processNextWorkItem(ctx) {
+					// RKC
+					time.Sleep(250 * time.Millisecond)
 				}
 			}()
 		}
@@ -299,9 +301,10 @@ func (c *Controller) reconcileHandler(ctx context.Context, obj interface{}) {
 	}
 
 	log := c.LogConstructor(&req)
-	reconcileID := uuid.NewUUID()
 
-	log = log.WithValues("reconcileID", reconcileID)
+	reconcileID := uuid.NewUUID()
+	// RKC
+	// log = log.WithValues("reconcileID", reconcileID)
 	ctx = logf.IntoContext(ctx, log)
 	ctx = addReconcileID(ctx, reconcileID)
 
