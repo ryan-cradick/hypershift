@@ -25,7 +25,7 @@ var (
 	// be cancelled if a SIGINT or SIGTERM is received. It's set up in TestMain.
 	testContext context.Context
 
-	log = zap.New(zap.UseDevMode(true), zap.ConsoleEncoder(func(o *zapcore.EncoderConfig) {
+	log = zap.New(zap.UseDevMode(false), zap.ConsoleEncoder(func(o *zapcore.EncoderConfig) {
 		o.EncodeTime = zapcore.RFC3339TimeEncoder
 	}))
 )

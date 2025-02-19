@@ -63,7 +63,7 @@ var (
 	// be cancelled if a SIGINT or SIGTERM is received. It's set up in TestMain.
 	testContext context.Context
 
-	log = crzap.New(crzap.UseDevMode(true), crzap.JSONEncoder(func(o *zapcore.EncoderConfig) {
+	log = crzap.New(crzap.UseDevMode(false), crzap.JSONEncoder(func(o *zapcore.EncoderConfig) {
 		o.EncodeTime = zapcore.RFC3339TimeEncoder
 	}))
 )

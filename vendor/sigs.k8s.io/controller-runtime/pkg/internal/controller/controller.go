@@ -221,7 +221,7 @@ func (c *Controller) Start(ctx context.Context) error {
 				// It enforces that the reconcileHandler is never invoked concurrently with the same object.
 				for c.processNextWorkItem(ctx) {
 					// RKC
-					time.Sleep(250 * time.Millisecond)
+					// time.Sleep(250 * time.Millisecond)
 				}
 			}()
 		}
@@ -304,7 +304,7 @@ func (c *Controller) reconcileHandler(ctx context.Context, obj interface{}) {
 
 	reconcileID := uuid.NewUUID()
 	// RKC
-	// log = log.WithValues("reconcileID", reconcileID)
+	log = log.WithValues("reconcileID", reconcileID)
 	ctx = logf.IntoContext(ctx, log)
 	ctx = addReconcileID(ctx, reconcileID)
 

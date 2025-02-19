@@ -31,7 +31,7 @@ func TestDeploymentName(t *testing.T) {
 }
 
 func TestPlaceholderCreator_Reconcile(t *testing.T) {
-	ctrl.SetLogger(zap.New(zap.UseDevMode(true), zap.JSONEncoder(func(o *zapcore.EncoderConfig) {
+	ctrl.SetLogger(zap.New(zap.UseDevMode(false), zap.JSONEncoder(func(o *zapcore.EncoderConfig) {
 		o.EncodeTime = zapcore.RFC3339TimeEncoder
 	})))
 	ctx := ctrl.LoggerInto(context.Background(), ctrl.Log)
@@ -171,7 +171,7 @@ func TestPlaceholderCreator_Reconcile(t *testing.T) {
 }
 
 func TestPlaceholderUpdater_Reconcile(t *testing.T) {
-	ctrl.SetLogger(zap.New(zap.UseDevMode(true), zap.JSONEncoder(func(o *zapcore.EncoderConfig) {
+	ctrl.SetLogger(zap.New(zap.UseDevMode(false), zap.JSONEncoder(func(o *zapcore.EncoderConfig) {
 		o.EncodeTime = zapcore.RFC3339TimeEncoder
 	})))
 	ctx := ctrl.LoggerInto(context.Background(), ctrl.Log)

@@ -452,7 +452,7 @@ func TestReconcileDefaultIngressEndpoints(t *testing.T) {
 		},
 	}
 
-	ctrl.SetLogger(zap.New(zap.UseDevMode(true)))
+	ctrl.SetLogger(zap.New(zap.UseDevMode(false)))
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			kubevirtInfraClusterObjects := []client.Object{}

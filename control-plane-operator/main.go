@@ -60,7 +60,8 @@ var (
 )
 
 func main() {
-	ctrl.SetLogger(zap.New(zap.UseDevMode(true), zap.JSONEncoder(func(o *zapcore.EncoderConfig) {
+	// RKC - don't use use dev mode
+	ctrl.SetLogger(zap.New(zap.UseDevMode(false), zap.JSONEncoder(func(o *zapcore.EncoderConfig) {
 		o.EncodeTime = zapcore.RFC3339TimeEncoder
 	})))
 	basename := filepath.Base(os.Args[0])

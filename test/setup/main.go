@@ -74,7 +74,7 @@ func monitoringCommand() *cobra.Command {
 	cmd.Flags().StringVar(&opts.ProwJobID, "prow-job-id", opts.ProwJobID, "The ProwJobID. If set, it will be added as a static label to the remote_write config.")
 
 	cmd.Run = func(cmd *cobra.Command, args []string) {
-		ctrl.SetLogger(zap.New(zap.UseDevMode(true)))
+		ctrl.SetLogger(zap.New(zap.UseDevMode(false)))
 		ctx := ctrl.SetupSignalHandler()
 
 		cl, err := e2eutil.GetClient()

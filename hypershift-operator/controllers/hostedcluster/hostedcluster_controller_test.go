@@ -1084,7 +1084,7 @@ func TestHostedClusterWatchesEverythingItCreates(t *testing.T) {
 		"v1.2.0",
 		"1.28.0")
 
-	ctrl.SetLogger(zap.New(zap.UseDevMode(true), zap.JSONEncoder(func(o *zapcore.EncoderConfig) {
+	ctrl.SetLogger(zap.New(zap.UseDevMode(false), zap.JSONEncoder(func(o *zapcore.EncoderConfig) {
 		o.EncodeTime = zapcore.RFC3339TimeEncoder
 	})))
 

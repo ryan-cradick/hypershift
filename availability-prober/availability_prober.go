@@ -50,7 +50,7 @@ func NewStartCommand() *cobra.Command {
 	cmd.Flags().BoolVar(&opts.waitForInfrastructureResource, "wait-for-infrastructure-resource", false, "Waits until the cluster infrastructure.config.openshift.io resource is present")
 	cmd.Flags().StringVar(&opts.waitForLabeledPodsGone, "wait-for-labeled-pods-gone", "", "Waits until pods with the specified label is gone from the namespace. Must be in format: namespace/label=selector")
 
-	log := zap.New(zap.UseDevMode(true), zap.JSONEncoder(func(o *zapcore.EncoderConfig) {
+	log := zap.New(zap.UseDevMode(false), zap.JSONEncoder(func(o *zapcore.EncoderConfig) {
 		o.EncodeTime = zapcore.RFC3339TimeEncoder
 	}))
 

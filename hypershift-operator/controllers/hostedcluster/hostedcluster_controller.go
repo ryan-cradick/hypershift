@@ -211,8 +211,8 @@ func (r *HostedClusterReconciler) SetupWithManager(mgr ctrl.Manager, createOrUpd
 		WithOptions(controller.Options{
 			// RKC - doubled rate limits
 			RateLimiter: workqueue.NewItemExponentialFailureRateLimiter(2*time.Second, 20*time.Second),
-			// RKC - switch from 10 to 1
-			MaxConcurrentReconciles: 1,
+			// RKC - switch from 10 to 1 and now back to 10
+			MaxConcurrentReconciles: 10,
 		})
 	for _, managedResource := range r.managedResources() {
 		bldr.Watches(managedResource, handler.EnqueueRequestsFromMapFunc(enqueueHostedClustersFunc(metricsSet, operatorNamespace, mgr.GetClient())), builder.WithPredicates(hyperutil.PredicatesForHostedClusterAnnotationScoping(mgr.GetClient())))
@@ -4755,9 +4755,9 @@ func (r *HostedClusterReconciler) lookupReleaseImage(ctx context.Context, hclust
 
 	imageName := hyperutil.HCControlPlaneReleaseImage(hcluster)
 	psString := string(pullSecretBytes)
-	key := imageName+psString
+	key := imageName + psString
 	releaseImage, exists := releaseImageCache.Get(key)
-	if exists && releaseImage != nil  {
+	if exists && releaseImage != nil {
 		return releaseImage.(*releaseinfo.ReleaseImage), nil
 	}
 
