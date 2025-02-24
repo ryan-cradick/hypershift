@@ -22,6 +22,7 @@ import (
 	"github.com/aws/aws-sdk-go/service/ec2/ec2iface"
 	"github.com/aws/aws-sdk-go/service/kms"
 	"github.com/go-logr/logr"
+	"github.com/golang/groupcache/lru"
 	routev1 "github.com/openshift/api/route/v1"
 	hyperv1 "github.com/openshift/hypershift/api/hypershift/v1beta1"
 	awsutil "github.com/openshift/hypershift/cmd/infra/aws/util"
@@ -853,11 +854,38 @@ func (r *HostedControlPlaneReconciler) validateConfigAndClusterCapabilities(hc *
 	return nil
 }
 
+// RKC - Cache for release image
+var releaseImageCache = lru.New(700)
+var count = 0
+
+
 func (r *HostedControlPlaneReconciler) LookupReleaseImage(ctx context.Context, hcp *hyperv1.HostedControlPlane) (*releaseinfo.ReleaseImage, error) {
 	pullSecret := common.PullSecret(hcp.Namespace)
 	if err := r.Client.Get(ctx, client.ObjectKeyFromObject(pullSecret), pullSecret); err != nil {
 		return nil, err
 	}
+
+	// RKC - Add cache for release image
+	count++
+	if count > 500 {
+		log := ctrl.LoggerFrom(ctx)
+		log.Info(fmt.Sprintf("RKC - Hosted Control Plane Cache update: %d", releaseImageCache.Len()))
+		count = 0
+	}
+
+	pullSecretBytes, ok := pullSecret.Data[corev1.DockerConfigJsonKey]
+	if !ok {
+		return nil, fmt.Errorf("expected %s key in pull secret", corev1.DockerConfigJsonKey)
+	}
+
+	imageName := util.HCPControlPlaneReleaseImage(hcp)
+	psString := string(pullSecretBytes)
+	key := imageName + psString
+	releaseImage, exists := releaseImageCache.Get(key)
+	if exists && releaseImage != nil {
+	 	return releaseImage.(*releaseinfo.ReleaseImage), nil
+	}
+
 	lookupCtx, lookupCancel := context.WithTimeout(ctx, 2*time.Minute)
 	defer lookupCancel()
 	return r.ReleaseProvider.Lookup(lookupCtx, util.HCPControlPlaneReleaseImage(hcp), pullSecret.Data[corev1.DockerConfigJsonKey])

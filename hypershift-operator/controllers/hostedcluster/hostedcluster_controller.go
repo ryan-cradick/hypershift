@@ -4732,7 +4732,8 @@ func (r *HostedClusterReconciler) reconcileAWSSubnets(ctx context.Context, creat
 	return nil
 }
 
-var releaseImageCache = lru.New(500)
+// RKC - Cache for release image
+var releaseImageCache = lru.New(700)
 var count = 0
 
 func (r *HostedClusterReconciler) lookupReleaseImage(ctx context.Context, hcluster *hyperv1.HostedCluster, releaseProvider releaseinfo.ProviderWithOpenShiftImageRegistryOverrides) (*releaseinfo.ReleaseImage, error) {
@@ -4745,11 +4746,11 @@ func (r *HostedClusterReconciler) lookupReleaseImage(ctx context.Context, hclust
 		return nil, fmt.Errorf("expected %s key in pull secret", corev1.DockerConfigJsonKey)
 	}
 
-	// RKC - Add cache
+	// RKC - Add cache for release image
 	count++
 	if count > 500 {
 		log := ctrl.LoggerFrom(ctx)
-		log.Info(fmt.Sprintf("RKC - Cache update: %d", releaseImageCache.Len()))
+		log.Info(fmt.Sprintf("RKC - Hosted Cluster Cache update: %d", releaseImageCache.Len()))
 		count = 0
 	}
 
