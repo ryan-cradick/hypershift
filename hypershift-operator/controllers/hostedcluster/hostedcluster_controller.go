@@ -211,8 +211,8 @@ func (r *HostedClusterReconciler) SetupWithManager(mgr ctrl.Manager, createOrUpd
 		WithOptions(controller.Options{
 			// RKC - doubled rate limits
 			RateLimiter: workqueue.NewItemExponentialFailureRateLimiter(2*time.Second, 20*time.Second),
-			// RKC - switch from 10 to 1 and now back to 10
-			MaxConcurrentReconciles: 10,
+			// RKC - switch from 10 to 1 and now back to 10 and now to 3
+			MaxConcurrentReconciles: 3,
 		})
 	for _, managedResource := range r.managedResources() {
 		bldr.Watches(managedResource, handler.EnqueueRequestsFromMapFunc(enqueueHostedClustersFunc(metricsSet, operatorNamespace, mgr.GetClient())), builder.WithPredicates(hyperutil.PredicatesForHostedClusterAnnotationScoping(mgr.GetClient())))
