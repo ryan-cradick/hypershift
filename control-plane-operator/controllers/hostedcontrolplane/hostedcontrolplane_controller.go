@@ -888,8 +888,14 @@ func (r *HostedControlPlaneReconciler) LookupReleaseImage(ctx context.Context, h
 
 	lookupCtx, lookupCancel := context.WithTimeout(ctx, 2*time.Minute)
 	defer lookupCancel()
-	return r.ReleaseProvider.Lookup(lookupCtx, util.HCPControlPlaneReleaseImage(hcp), pullSecret.Data[corev1.DockerConfigJsonKey])
 
+	releaseImage, err := r.ReleaseProvider.Lookup(lookupCtx, util.HCPControlPlaneReleaseImage(hcp), pullSecret.Data[corev1.DockerConfigJsonKey])
+	if err != nil {
+		return nil, err
+	}
+
+	releaseImageCache.Add(key, releaseImage)
+	return releaseImage.(*releaseinfo.ReleaseImage), nil
 }
 
 func (r *HostedControlPlaneReconciler) update(ctx context.Context, hostedControlPlane *hyperv1.HostedControlPlane, releaseImage *releaseinfo.ReleaseImage) (reconcile.Result, error) {

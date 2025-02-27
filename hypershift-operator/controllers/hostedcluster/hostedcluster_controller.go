@@ -211,8 +211,8 @@ func (r *HostedClusterReconciler) SetupWithManager(mgr ctrl.Manager, createOrUpd
 		WithOptions(controller.Options{
 			// RKC - doubled rate limits
 			RateLimiter: workqueue.NewItemExponentialFailureRateLimiter(2*time.Second, 20*time.Second),
-			// RKC - switch from 10 to 1 and now back to 10 and now to 3
-			MaxConcurrentReconciles: 3,
+			// RKC - switch from 10 to 1 and now back to 10 and now to 3 and now 10
+			MaxConcurrentReconciles: 10,
 		})
 	for _, managedResource := range r.managedResources() {
 		bldr.Watches(managedResource, handler.EnqueueRequestsFromMapFunc(enqueueHostedClustersFunc(metricsSet, operatorNamespace, mgr.GetClient())), builder.WithPredicates(hyperutil.PredicatesForHostedClusterAnnotationScoping(mgr.GetClient())))
@@ -2360,6 +2360,10 @@ func (r *HostedClusterReconciler) reconcileCLISecrets(ctx context.Context, creat
 	return nil
 }
 
+// RKC - Cache for release image
+var cpImageCache = lru.New(700)
+var cpCount = 0
+
 // GetControlPlaneOperatorImage resolves the appropriate control plane operator
 // image based on the following order of precedence (from most to least
 // preferred):
@@ -2374,13 +2378,35 @@ func (r *HostedClusterReconciler) reconcileCLISecrets(ctx context.Context, creat
 //
 // If no image can be found according to these rules, an error is returned.
 func GetControlPlaneOperatorImage(ctx context.Context, hc *hyperv1.HostedCluster, releaseProvider releaseinfo.Provider, hypershiftOperatorImage string, pullSecret []byte) (string, error) {
+
+	// RKC add cache here
+
 	if val, ok := hc.Annotations[hyperv1.ControlPlaneOperatorImageAnnotation]; ok {
 		return val, nil
 	}
-	releaseInfo, err := releaseProvider.Lookup(ctx, hyperutil.HCControlPlaneReleaseImage(hc), pullSecret)
-	if err != nil {
-		return "", err
+
+	// RKC - Add cache for release image
+	cpCount++
+	if cpCount > 500 {
+		log := ctrl.LoggerFrom(ctx)
+		log.Info(fmt.Sprintf("RKC - Hosted Cluster Control Plane Cache update: %d", cpImageCache.Len()))
+		cpCount = 0
 	}
+
+	imageName := hyperutil.HCControlPlaneReleaseImage(hc)
+	psString := string(pullSecret)
+	key := imageName + psString
+	releaseImage, exists := cpImageCache.Get(key)
+	if !exists || releaseImage == nil {
+		var err error
+		releaseImage, err = releaseProvider.Lookup(ctx, hyperutil.HCControlPlaneReleaseImage(hc), pullSecret)
+		if err != nil {
+			return "", err
+		}
+		cpImageCache.Add(key, releaseImage)
+	}
+	releaseInfo := releaseImage.(*releaseinfo.ReleaseImage)
+
 	version, err := semver.Parse(releaseInfo.Version())
 	if err != nil {
 		return "", err
