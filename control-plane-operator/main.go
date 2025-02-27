@@ -394,7 +394,7 @@ func NewStartCommand() *cobra.Command {
 
 		coreReleaseProvider := &releaseinfo.StaticProviderDecorator{
 			Delegate: &releaseinfo.CachedProvider{
-				Inner: &releaseinfo.RegistryClientProvider{},
+				Inner: &releaseinfo.RegistryClientProvider{Log: setupLog},
 				Cache: map[string]*releaseinfo.ReleaseImage{},
 			},
 			ComponentImages: componentImages,

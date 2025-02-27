@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/go-logr/logr"
+	"github.com/golang/groupcache/lru"
 	"github.com/openshift/hypershift/support/releaseinfo/registryclient"
 )
 
@@ -17,9 +19,29 @@ var _ Provider = (*RegistryClientProvider)(nil)
 // RegistryClientProvider uses a registry client to directly stream image
 // content and extract image metadata.
 type RegistryClientProvider struct {
+	Log logr.Logger
 }
 
+// RKC Cache
+var releaseImageCache = lru.New(700)
+var count = 0
+
 func (p *RegistryClientProvider) Lookup(ctx context.Context, image string, pullSecret []byte) (releaseImage *ReleaseImage, err error) {
+
+	// RKC - Add cache for release image
+	count++
+	if count > 500 {
+		p.Log.Info(fmt.Sprintf("RKC - Registry Client Cache update: %d", releaseImageCache.Len()))
+		count = 0
+	}
+
+	psString := string(pullSecret)
+	key := image + psString
+	release, exists := releaseImageCache.Get(key)
+	if exists && release != nil {
+		return release.(*ReleaseImage), nil
+	}
+
 	fileContents, err := registryclient.ExtractImageFiles(ctx, image, pullSecret, ReleaseImageStreamFile, ReleaseImageMetadataFile)
 	if err != nil {
 		return nil, fmt.Errorf("failed to extract release metadata: %w", err)
@@ -41,8 +63,11 @@ func (p *RegistryClientProvider) Lookup(ctx context.Context, image string, pullS
 		return nil, err
 	}
 
-	return &ReleaseImage{
+	releaseImage = &ReleaseImage{
 		ImageStream:    imageStream,
 		StreamMetadata: coreOSMeta,
-	}, nil
+	}
+
+	releaseImageCache.Add(key, releaseImage)
+	return releaseImage, nil
 }

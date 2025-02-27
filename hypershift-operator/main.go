@@ -299,7 +299,7 @@ func run(ctx context.Context, opts *StartOptions, log logr.Logger) error {
 	releaseProviderWithOpenShiftImageRegistryOverrides := &releaseinfo.ProviderWithOpenShiftImageRegistryOverridesDecorator{
 		Delegate: &releaseinfo.RegistryMirrorProviderDecorator{
 			Delegate: &releaseinfo.CachedProvider{
-				Inner: &releaseinfo.RegistryClientProvider{},
+				Inner: &releaseinfo.RegistryClientProvider{Log: log},
 				Cache: map[string]*releaseinfo.ReleaseImage{},
 			},
 			RegistryOverrides: opts.RegistryOverrides,

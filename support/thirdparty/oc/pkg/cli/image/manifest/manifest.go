@@ -89,7 +89,7 @@ func ManifestToImageConfig(ctx context.Context, srcManifest distribution.Manifes
 		}
 		configJSON, err := blobs.Get(ctx, t.Config.Digest)
 		if err != nil {
-			return nil, nil, fmt.Errorf("cannot retrieve image configuration for %s: %v", location, err)
+			return nil, nil, fmt.Errorf("cannot retrieve image configuration for %s: %v", location, err) // RKC - error
 		}
 		config := &dockerv1client.DockerImageConfig{}
 		if err := json.Unmarshal(configJSON, &config); err != nil {
