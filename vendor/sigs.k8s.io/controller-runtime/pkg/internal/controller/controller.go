@@ -220,6 +220,8 @@ func (c *Controller) Start(ctx context.Context) error {
 				// Run a worker thread that just dequeues items, processes them, and marks them done.
 				// It enforces that the reconcileHandler is never invoked concurrently with the same object.
 				for c.processNextWorkItem(ctx) {
+					// RKC - Delay processing each work item for 10 seconds
+					time.Sleep(3 * time.Second)
 				}
 			}()
 		}
