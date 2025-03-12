@@ -28,6 +28,7 @@ import (
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/apimachinery/pkg/util/uuid"
 	"k8s.io/client-go/util/workqueue"
+	"k8s.io/klog/v2"
 
 	ctrlmetrics "sigs.k8s.io/controller-runtime/pkg/internal/controller/metrics"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
@@ -92,6 +93,9 @@ type Controller struct {
 
 	// LeaderElected indicates whether the controller is leader elected or always running.
 	LeaderElected *bool
+
+	// logger for the controller
+	logger logr.Logger
 }
 
 // Reconcile implements reconcile.Reconciler.
@@ -127,7 +131,7 @@ func (c *Controller) Watch(src source.Source) error {
 		return nil
 	}
 
-	c.LogConstructor(nil).Info("Starting EventSource", "source", src)
+	c.GetLogger().Info("Starting EventSource", "source", src)
 	return src.Start(c.ctx, c.Queue)
 }
 
@@ -170,7 +174,7 @@ func (c *Controller) Start(ctx context.Context) error {
 		// caches to sync so that they have a chance to register their intendeded
 		// caches.
 		for _, watch := range c.startWatches {
-			c.LogConstructor(nil).Info("Starting EventSource", "source", fmt.Sprintf("%s", watch))
+			c.GetLogger().Info("Starting EventSource", "source", fmt.Sprintf("%s", watch))
 
 			if err := watch.Start(ctx, c.Queue); err != nil {
 				return err
@@ -178,7 +182,7 @@ func (c *Controller) Start(ctx context.Context) error {
 		}
 
 		// Start the SharedIndexInformer factories to begin populating the SharedIndexInformer caches
-		c.LogConstructor(nil).Info("Starting Controller")
+		c.GetLogger().Info("Starting Controller")
 
 		for _, watch := range c.startWatches {
 			syncingSource, ok := watch.(source.SyncingSource)
@@ -195,7 +199,7 @@ func (c *Controller) Start(ctx context.Context) error {
 				// is an error or a timeout
 				if err := syncingSource.WaitForSync(sourceStartCtx); err != nil {
 					err := fmt.Errorf("failed to wait for %s caches to sync: %w", c.Name, err)
-					c.LogConstructor(nil).Error(err, "Could not wait for Cache to sync")
+					c.GetLogger().Error(err, "Could not wait for Cache to sync")
 					return err
 				}
 
@@ -212,7 +216,7 @@ func (c *Controller) Start(ctx context.Context) error {
 		c.startWatches = nil
 
 		// Launch workers to process resources
-		c.LogConstructor(nil).Info("Starting workers", "worker count", c.MaxConcurrentReconciles)
+		c.GetLogger().Info("Starting workers", "worker count", c.MaxConcurrentReconciles)
 		wg.Add(c.MaxConcurrentReconciles)
 		for i := 0; i < c.MaxConcurrentReconciles; i++ {
 			go func() {
@@ -232,9 +236,9 @@ func (c *Controller) Start(ctx context.Context) error {
 	}
 
 	<-ctx.Done()
-	c.LogConstructor(nil).Info("Shutdown signal received, waiting for all workers to finish")
+	c.GetLogger().Info("Shutdown signal received, waiting for all workers to finish")
 	wg.Wait()
-	c.LogConstructor(nil).Info("All workers finished")
+	c.GetLogger().Info("All workers finished")
 	return nil
 }
 
@@ -293,21 +297,17 @@ func (c *Controller) reconcileHandler(ctx context.Context, obj interface{}) {
 		// Forget here else we'd go into a loop of attempting to
 		// process a work item that is invalid.
 		c.Queue.Forget(obj)
-		c.LogConstructor(nil).Error(nil, "Queue item was not a Request", "type", fmt.Sprintf("%T", obj), "value", obj)
+		c.logger.Error(nil, "Queue item was not a Request", "type", fmt.Sprintf("%T", obj), "value", obj)
 		// Return true, don't take a break
 		return
 	}
 
-	log := c.LogConstructor(&req)
 	reconcileID := uuid.NewUUID()
-
-	log = log.WithValues("reconcileID", reconcileID)
-	ctx = logf.IntoContext(ctx, log)
-	ctx = addReconcileID(ctx, reconcileID)
+	ctx = logf.IntoContext(ctx, c.logger)
 
 	// RunInformersAndControllers the syncHandler, passing it the Namespace/Name string of the
 	// resource to be synced.
-	log.V(5).Info("Reconciling")
+	c.logger.V(5).Info("Reconciling", "reconcileID", reconcileID, "object", klog.KRef(req.Namespace, req.Name), "namespace", req.Namespace, "name", req.Name)
 	result, err := c.Reconcile(ctx, req)
 	switch {
 	case err != nil:
@@ -319,11 +319,11 @@ func (c *Controller) reconcileHandler(ctx context.Context, obj interface{}) {
 		ctrlmetrics.ReconcileErrors.WithLabelValues(c.Name).Inc()
 		ctrlmetrics.ReconcileTotal.WithLabelValues(c.Name, labelError).Inc()
 		if !result.IsZero() {
-			log.Info("Warning: Reconciler returned both a non-zero result and a non-nil error. The result will always be ignored if the error is non-nil and the non-nil error causes reqeueuing with exponential backoff. For more details, see: https://pkg.go.dev/sigs.k8s.io/controller-runtime/pkg/reconcile#Reconciler")
+			c.logger.Info("Warning: Reconciler returned both a non-zero result and a non-nil error. The result will always be ignored if the error is non-nil and the non-nil error causes reqeueuing with exponential backoff. For more details, see: https://pkg.go.dev/sigs.k8s.io/controller-runtime/pkg/reconcile#Reconciler")
 		}
-		log.Error(err, "Reconciler error")
+		c.logger.Error(err, "Reconciler error")
 	case result.RequeueAfter > 0:
-		log.V(5).Info(fmt.Sprintf("Reconcile done, requeueing after %s", result.RequeueAfter))
+		c.logger.V(5).Info(fmt.Sprintf("Reconcile done, requeueing after %s", result.RequeueAfter))
 		// The result.RequeueAfter request will be lost, if it is returned
 		// along with a non-nil error. But this is intended as
 		// We need to drive to stable reconcile loops before queuing due
@@ -332,11 +332,11 @@ func (c *Controller) reconcileHandler(ctx context.Context, obj interface{}) {
 		c.Queue.AddAfter(req, result.RequeueAfter)
 		ctrlmetrics.ReconcileTotal.WithLabelValues(c.Name, labelRequeueAfter).Inc()
 	case result.Requeue:
-		log.V(5).Info("Reconcile done, requeueing")
+		c.logger.V(5).Info("Reconcile done, requeueing")
 		c.Queue.AddRateLimited(req)
 		ctrlmetrics.ReconcileTotal.WithLabelValues(c.Name, labelRequeue).Inc()
 	default:
-		log.V(5).Info("Reconcile successful")
+		c.logger.V(5).Info("Reconcile successful")
 		// Finally, if no error occurs we Forget this item so it does not
 		// get queued again until another change happens.
 		c.Queue.Forget(obj)
@@ -346,7 +346,10 @@ func (c *Controller) reconcileHandler(ctx context.Context, obj interface{}) {
 
 // GetLogger returns this controller's logger.
 func (c *Controller) GetLogger() logr.Logger {
-	return c.LogConstructor(nil)
+	if c.logger == (logr.Logger{}) {
+		c.logger = c.LogConstructor(nil)
+	}
+	return c.logger
 }
 
 // updateMetrics updates prometheus metrics within the controller.
