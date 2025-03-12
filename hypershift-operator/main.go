@@ -21,6 +21,8 @@ import (
 	"strings"
 	"time"
 
+	"net/http/pprof"
+
 	"github.com/aws/aws-sdk-go/service/ec2"
 	"github.com/aws/aws-sdk-go/service/ec2/ec2iface"
 	"github.com/aws/aws-sdk-go/service/s3"
@@ -216,6 +218,8 @@ func run(ctx context.Context, opts *StartOptions, log logr.Logger) error {
 		return fmt.Errorf("unable to start manager: %w", err)
 	}
 
+	mgr.AddMetricsServerExtraHandler("/pprof", pprof.Handler("heap"))
+	
 	kubeDiscoveryClient, err := discovery.NewDiscoveryClientForConfig(mgr.GetConfig())
 	if err != nil {
 		return fmt.Errorf("unable to create discovery client: %w", err)
