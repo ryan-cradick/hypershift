@@ -186,6 +186,10 @@ func RenconcileMgmtImageRegistryOverrides(ctx context.Context, capChecker capabi
 		}
 	}
 
+	// RKC - Cache Def
+	logger := ctrl.LoggerFrom(ctx)
+	logger.Info("RKC - C - RenconcileMgmtImageRegistryOverrides", len(registryOverrides))
+
 	releaseProvider := &releaseinfo.ProviderWithOpenShiftImageRegistryOverridesDecorator{
 		Delegate: &releaseinfo.RegistryMirrorProviderDecorator{
 			Delegate: &releaseinfo.CachedProvider{

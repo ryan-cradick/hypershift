@@ -185,6 +185,7 @@ type HostedClusterReconciler struct {
 
 	OperatorNamespace string
 
+	// RKC - ReconcileMetadataProviders Func Definition
 	ReconcileMetadataProviders func(ctx context.Context, imgOverrides map[string]string) (releaseinfo.ProviderWithOpenShiftImageRegistryOverrides, hyperutil.ImageMetadataProvider, error)
 
 	overwriteReconcile   func(ctx context.Context, req ctrl.Request, log logr.Logger, hcluster *hyperv1.HostedCluster) (ctrl.Result, error)
@@ -220,7 +221,7 @@ func (r *HostedClusterReconciler) SetupWithManager(mgr ctrl.Manager, createOrUpd
 		For(&hyperv1.HostedCluster{}, builder.WithPredicates(hyperutil.PredicatesForHostedClusterAnnotationScoping(mgr.GetClient()))).
 		WithOptions(controller.Options{
 			RateLimiter:             workqueue.NewItemExponentialFailureRateLimiter(1*time.Second, 10*time.Second),
-			MaxConcurrentReconciles: 10,
+			MaxConcurrentReconciles: 1, // RKC set to one
 		})
 	for _, managedResource := range r.managedResources() {
 		bldr.Watches(managedResource, handler.EnqueueRequestsFromMapFunc(enqueueHostedClustersFunc(metricsSet, operatorNamespace, mgr.GetClient())), builder.WithPredicates(hyperutil.PredicatesForHostedClusterAnnotationScoping(mgr.GetClient())))
@@ -231,6 +232,7 @@ func (r *HostedClusterReconciler) SetupWithManager(mgr ctrl.Manager, createOrUpd
 	// When SCC is not available (Kubernetes), we want to explicitly set a default (non-root) security context
 	r.SetDefaultSecurityContext = !r.ManagementClusterCapabilities.Has(capabilities.CapabilitySecurityContextConstraint)
 
+	// RKC - Setting Reconcile Provider Impl
 	r.ReconcileMetadataProviders = r.ReconcileMetadataProvidersImpl
 
 	return bldr.Complete(r)
@@ -356,6 +358,7 @@ func (r *HostedClusterReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 	return res, err
 }
 
+// RKC - ReconcileMetadataProviders Impl
 func (r *HostedClusterReconciler) ReconcileMetadataProvidersImpl(ctx context.Context, imgOverrides map[string]string) (releaseinfo.ProviderWithOpenShiftImageRegistryOverrides, hyperutil.ImageMetadataProvider, error) {
 	releaseProvider, imageMetadataProvider, err := globalconfig.RenconcileMgmtImageRegistryOverrides(ctx, r.ManagementClusterCapabilities, r.Client, imgOverrides)
 
@@ -602,6 +605,7 @@ func (r *HostedClusterReconciler) reconcile(ctx context.Context, req ctrl.Reques
 		}
 	}
 
+	// RKC - Release Provider Creation in Reconcile
 	// Reconcile the ICSP/IDMS from the management cluster
 	releaseProvider, registryClientImageMetadataProvider, err := r.ReconcileMetadataProviders(ctx, r.RegistryOverrides)
 	if err != nil {

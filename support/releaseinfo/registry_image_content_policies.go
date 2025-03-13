@@ -9,6 +9,7 @@ import (
 
 var _ ProviderWithOpenShiftImageRegistryOverrides = (*ProviderWithOpenShiftImageRegistryOverridesDecorator)(nil)
 
+// RKC - 0 level registry
 type ProviderWithOpenShiftImageRegistryOverridesDecorator struct {
 	Delegate                        ProviderWithRegistryOverrides
 	OpenShiftImageRegistryOverrides map[string][]string
@@ -30,6 +31,7 @@ func (p *ProviderWithOpenShiftImageRegistryOverridesDecorator) Lookup(ctx contex
 
 				// Attempt to lookup image with mirror registry destination
 				releaseImage, err := p.Delegate.Lookup(ctx, image, pullSecret)
+				logger.Info("RKC - 0 - ProviderWithOpenShiftImageRegistryOverridesDecorator Overrides Lookup", image, err)
 				if releaseImage != nil {
 					p.mirroredReleaseImage = image
 					return releaseImage, nil
@@ -40,7 +42,9 @@ func (p *ProviderWithOpenShiftImageRegistryOverridesDecorator) Lookup(ctx contex
 		}
 	}
 
-	return p.Delegate.Lookup(ctx, image, pullSecret)
+	releaseImage, err := p.Delegate.Lookup(ctx, image, pullSecret)
+	logger.Info("RKC - 0 - ProviderWithOpenShiftImageRegistryOverridesDecorator Default Lookup", image, err)
+	return releaseImage, err
 }
 
 func (p *ProviderWithOpenShiftImageRegistryOverridesDecorator) GetRegistryOverrides() map[string]string {

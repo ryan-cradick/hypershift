@@ -1,6 +1,8 @@
 package releaseinfo
 
 import (
+	ctrl "sigs.k8s.io/controller-runtime"
+
 	"context"
 	"strings"
 	"sync"
@@ -8,6 +10,7 @@ import (
 
 var _ ProviderWithRegistryOverrides = (*RegistryMirrorProviderDecorator)(nil)
 
+// RKC - 1st level registry
 // RegistryMirrorProviderDecorator decorates another Provider to add user-specified
 // component name to image mappings. The Lookup implementation will first
 // delegate to the given Delegate, and will then add additional TagReferences
@@ -27,7 +30,10 @@ func (p *RegistryMirrorProviderDecorator) Lookup(ctx context.Context, image stri
 	p.lock.Lock()
 	defer p.lock.Unlock()
 
+	logger := ctrl.LoggerFrom(ctx)
+
 	releaseImage, err := p.Delegate.Lookup(ctx, image, pullSecret)
+	logger.Info("RKC - 1 - RegistryMirrorProviderDecorator Default Lookup", image, err)
 	if err != nil {
 		return nil, err
 	}
