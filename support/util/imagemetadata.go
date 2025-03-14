@@ -24,9 +24,9 @@ import (
 )
 
 var (
-	imageMetadataCache = lru.New(1000)
-	manifestsCache     = lru.New(1000)
-	digestCache        = lru.New(1000)
+	imageMetadataCache = lru.New(3000)
+	manifestsCache     = lru.New(3000)
+	digestCache        = lru.New(3000)
 )
 
 type ImageMetadataProvider interface {
@@ -221,12 +221,17 @@ func (r *RegistryClientImageMetadataProvider) GetManifest(ctx context.Context, i
 
 	// There are no ICSPs/IDMSs to process.
 	// That means the image reference should be pulled from the external registry
+	// RKC
+	log := ctrl.LoggerFrom(ctx)
+	log.Info("RKC - GetManifest", parsedImageRef.ID, manifestsCache.Len())
 	if len(r.OpenShiftImageRegistryOverrides) == 0 {
 		// If the image reference contains a digest, immediately look it up in the cache
 		if parsedImageRef.ID != "" {
 			if manifest, exists := manifestsCache.Get(parsedImageRef.ID); exists {
+				log.Info("RKC - GetManifest", parsedImageRef.ID, "cache hit")
 				return manifest.(distribution.Manifest), nil
 			}
+			log.Info("RKC - GetManifest", parsedImageRef.ID, "cache miss")
 		}
 		ref = &parsedImageRef
 	}
@@ -235,10 +240,13 @@ func (r *RegistryClientImageMetadataProvider) GetManifest(ctx context.Context, i
 	ref = seekOverride(ctx, r.OpenShiftImageRegistryOverrides, parsedImageRef)
 
 	// If the image reference contains a digest, immediately look it up in the cache
+	log.Info("RKC - GetManifest Reference", ref.ID, manifestsCache.Len())
 	if ref.ID != "" {
 		if manifest, exists := manifestsCache.Get(ref.ID); exists {
+			log.Info("RKC - GetManifest Reference", ref.ID, "cache hit")
 			return manifest.(distribution.Manifest), nil
 		}
+		log.Info("RKC - GetManifest Reference", ref.ID, "cache miss")
 	}
 
 	composedRef := ref.String()
