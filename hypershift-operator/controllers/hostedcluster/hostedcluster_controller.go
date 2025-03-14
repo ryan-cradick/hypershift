@@ -187,6 +187,8 @@ type HostedClusterReconciler struct {
 	OperatorNamespace string
 
 	ReconcileMetadataProviders func(ctx context.Context, imgOverrides map[string]string) (releaseinfo.ProviderWithOpenShiftImageRegistryOverrides, hyperutil.ImageMetadataProvider, error)
+	releaseProvider            releaseinfo.ProviderWithOpenShiftImageRegistryOverrides
+	imageMetadataProvider      hyperutil.ImageMetadataProvider
 
 	overwriteReconcile   func(ctx context.Context, req ctrl.Request, log logr.Logger, hcluster *hyperv1.HostedCluster) (ctrl.Result, error)
 	now                  func() metav1.Time
@@ -358,9 +360,17 @@ func (r *HostedClusterReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 }
 
 func (r *HostedClusterReconciler) ReconcileMetadataProvidersImpl(ctx context.Context, imgOverrides map[string]string) (releaseinfo.ProviderWithOpenShiftImageRegistryOverrides, hyperutil.ImageMetadataProvider, error) {
-	releaseProvider, imageMetadataProvider, err := globalconfig.RenconcileMgmtImageRegistryOverrides(ctx, r.ManagementClusterCapabilities, r.Client, imgOverrides)
 
-	return releaseProvider, imageMetadataProvider, err
+	if r.releaseProvider == nil {
+		rp, imp, err := globalconfig.RenconcileMgmtImageRegistryOverrides(ctx, r.ManagementClusterCapabilities, r.Client, imgOverrides)
+		if err != nil {
+			return rp, imp, err
+		}
+		r.releaseProvider = rp
+		r.imageMetadataProvider = imp
+	}
+
+	return r.releaseProvider, r.imageMetadataProvider, nil
 }
 
 func (r *HostedClusterReconciler) reconcile(ctx context.Context, req ctrl.Request, log logr.Logger, hcluster *hyperv1.HostedCluster) (ctrl.Result, error) {
