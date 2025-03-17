@@ -237,32 +237,35 @@ func (r *RegistryClientImageMetadataProvider) GetManifest(ctx context.Context, i
 	// There are no ICSPs/IDMSs to process.
 	// That means the image reference should be pulled from the external registry
 	// RKC
+	pirs := parsedImageRef.String()
 	log := ctrl.LoggerFrom(ctx)
-	log.Info("RKC - GetManifest", imageRef, parsedImageRef.ID, "cache size", manifestsCache.Len(), "override size", len(r.OpenShiftImageRegistryOverrides))
-
+	log.Info("RKC - GetManifest", imageRef, parsedImageRef.ID, "cache size", manifestsCache.Len(), "override size", len(r.OpenShiftImageRegistryOverrides), "cache key", pirs)
 	if len(r.OpenShiftImageRegistryOverrides) == 0 {
 		// If the image reference contains a digest, immediately look it up in the cache
-		if parsedImageRef.ID != "" {
-			if manifest, exists := manifestsCache.Get(parsedImageRef.ID); exists {
-				log.Info("RKC - GetManifest image cache hit", imageRef, parsedImageRef.ID)
-				return manifest.(distribution.Manifest), nil
-			}
-			log.Info("RKC - GetManifest image cache miss", imageRef, parsedImageRef.ID)
+		//if parsedImageRef.ID != "" {
+		// if manifest, exists := manifestsCache.Get(parsedImageRef.ID); exists {
+		if manifest, exists := manifestsCache.Get(pirs); exists {
+			log.Info("RKC - GetManifest image cache hit", imageRef, pirs)
+			return manifest.(distribution.Manifest), nil
 		}
+		log.Info("RKC - GetManifest image cache miss", imageRef, pirs)
+		// }
 		ref = &parsedImageRef
 	}
 
 	// Get the image repo info based the source/mirrors in the ICSPs/IDMSs
 	ref = seekOverride(ctx, r.OpenShiftImageRegistryOverrides, parsedImageRef)
+	pirs = ref.String()
 
 	// If the image reference contains a digest, immediately look it up in the cache
-	if ref.ID != "" {
-		if manifest, exists := manifestsCache.Get(ref.ID); exists {
-			log.Info("RKC - GetManifest reference cache hit", imageRef, ref.ID)
-			return manifest.(distribution.Manifest), nil
-		}
-		log.Info("RKC - GetManifest reference cache miss", imageRef, ref.ID)
+	// if ref.ID != "" {
+	// if manifest, exists := manifestsCache.Get(ref.ID); exists {
+	if manifest, exists := manifestsCache.Get(pirs); exists {
+		log.Info("RKC - GetManifest reference cache hit", imageRef, pirs)
+		return manifest.(distribution.Manifest), nil
 	}
+	log.Info("RKC - GetManifest reference cache miss", imageRef, pirs)
+	//}
 
 	composedRef := ref.String()
 
@@ -270,7 +273,8 @@ func (r *RegistryClientImageMetadataProvider) GetManifest(ctx context.Context, i
 	if err != nil {
 		return nil, err
 	}
-	manifestsCache.Add(srcDigest, digestsManifest)
+	log.Info("RKC - GetManifest ADD", imageRef, pirs, "srcDigest", srcDigest.String())
+	manifestsCache.Add(pirs, digestsManifest)
 
 	return digestsManifest, nil
 }
