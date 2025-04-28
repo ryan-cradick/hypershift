@@ -355,7 +355,7 @@ func run(ctx context.Context, opts *StartOptions, log logr.Logger) error {
 		hostedClusterReconciler.S3Client = s3Client
 		hostedClusterReconciler.OIDCStorageProviderS3BucketName = opts.OIDCStorageProviderS3BucketName
 	}
-	if err := hostedClusterReconciler.SetupWithManager(mgr, createOrUpdate, metricsSet, opts.Namespace); err != nil {
+	if err := hostedClusterReconciler.SetupWithManager(ctx, mgr, createOrUpdate, metricsSet, opts.Namespace); err != nil {
 		return fmt.Errorf("unable to create controller: %w", err)
 	}
 	if opts.CertDir != "" {
