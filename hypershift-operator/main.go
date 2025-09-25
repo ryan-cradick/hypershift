@@ -21,6 +21,8 @@ import (
 	"strings"
 	"time"
 
+	"net/http/pprof"
+
 	hyperv1 "github.com/openshift/hypershift/api/hypershift/v1beta1"
 	awsutil "github.com/openshift/hypershift/cmd/infra/aws/util"
 	pkiconfig "github.com/openshift/hypershift/control-plane-pki-operator/config"
@@ -221,6 +223,8 @@ func run(ctx context.Context, opts *StartOptions, log logr.Logger) error {
 	if err != nil {
 		return fmt.Errorf("unable to start manager: %w", err)
 	}
+
+	mgr.AddMetricsServerExtraHandler("/pprof", pprof.Handler("heap"))
 
 	kubeDiscoveryClient, err := discovery.NewDiscoveryClientForConfig(mgr.GetConfig())
 	if err != nil {
