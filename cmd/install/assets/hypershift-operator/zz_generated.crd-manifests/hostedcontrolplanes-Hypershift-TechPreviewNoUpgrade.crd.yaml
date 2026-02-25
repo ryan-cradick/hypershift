@@ -7863,6 +7863,26 @@ spec:
           status:
             description: status is the status of the HostedControlPlane.
             properties:
+              autoNode:
+                description: autoNode contains the observed state of the autoNode
+                  (Karpenter) provisioner.
+                minProperties: 1
+                properties:
+                  nodeClaimCount:
+                    description: |-
+                      nodeClaimCount is the total number of NodeClaims managed by Karpenter.
+                      This represents what Karpenter intends to provision, whether or not the node object exists yet.
+                    format: int32
+                    minimum: 0
+                    type: integer
+                  nodeCount:
+                    description: |-
+                      nodeCount is the number of nodes fully provisioned by Karpenter.
+                      These are node objects that exist in the cluster and carry the karpenter.sh/nodepool label.
+                    format: int32
+                    minimum: 0
+                    type: integer
+                type: object
               conditions:
                 description: |-
                   conditions contains details for one aspect of the current state of the HostedControlPlane.

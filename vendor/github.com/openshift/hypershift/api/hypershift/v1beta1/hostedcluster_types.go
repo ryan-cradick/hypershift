@@ -2169,9 +2169,30 @@ type HostedClusterStatus struct {
 	// +optional
 	Platform *PlatformStatus `json:"platform,omitempty"`
 
+	// autoNode contains the observed state of the autoNode (Karpenter) provisioner.
+	// +openshift:enable:FeatureGate=AutoNodeKarpenter
+	// +optional
+	AutoNode AutoNodeStatus `json:"autoNode,omitzero"`
+
 	// configuration contains the cluster configuration status of the HostedCluster
 	// +optional
 	Configuration *ConfigurationStatus `json:"configuration,omitempty"`
+}
+
+// AutoNodeStatus contains the observed state of the AutoNode provisioner.
+// +kubebuilder:validation:MinProperties=1
+type AutoNodeStatus struct {
+	// nodeCount is the number of nodes fully provisioned by Karpenter.
+	// These are node objects that exist in the cluster and carry the karpenter.sh/nodepool label.
+	// +kubebuilder:validation:Minimum=0
+	// +optional
+	NodeCount *int32 `json:"nodeCount,omitempty"`
+
+	// nodeClaimCount is the total number of NodeClaims managed by Karpenter.
+	// This represents what Karpenter intends to provision, whether or not the node object exists yet.
+	// +kubebuilder:validation:Minimum=0
+	// +optional
+	NodeClaimCount *int32 `json:"nodeClaimCount,omitempty"`
 }
 
 // PlatformStatus contains platform-specific status
