@@ -35,6 +35,7 @@ import (
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	policyv1 "k8s.io/api/policy/v1"
+	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
@@ -156,14 +157,100 @@ func testKarpenterPlumbing(ctx context.Context, mgtClient, guestClient crclient.
 		g.Expect(versionFound).To(BeTrue(), "karpenter version should be present in logs")
 		t.Logf("Karpenter version found in logs: %s", foundVersion)
 
-		t.Log("Validating EC2NodeClass")
-		ec2NodeClassList := &awskarpenterv1.EC2NodeClassList{}
-		g.Expect(guestClient.List(ctx, ec2NodeClassList)).To(Succeed())
-		g.Expect(ec2NodeClassList.Items).ToNot(BeEmpty())
+		t.Log("Validating Karpenter CRDs are installed")
+		expectedCRDs := []string{
+			"ec2nodeclasses.karpenter.k8s.aws",
+			"openshiftec2nodeclasses.karpenter.hypershift.openshift.io",
+			"nodepools.karpenter.sh",
+			"nodeclaims.karpenter.sh",
+		}
+		for _, crdName := range expectedCRDs {
+			e2eutil.EventuallyObject(t, ctx, fmt.Sprintf("CRD %s to exist in the guest cluster", crdName),
+				func(ctx context.Context) (*apiextensionsv1.CustomResourceDefinition, error) {
+					crd := &apiextensionsv1.CustomResourceDefinition{}
+					err := guestClient.Get(ctx, crclient.ObjectKey{Name: crdName}, crd)
+					return crd, err
+				},
+				nil,
+				e2eutil.WithTimeout(2*time.Minute),
+			)
+		}
 
-		// validate admin cannot delete EC2NodeClass directly
-		ec2NodeClass := ec2NodeClassList.Items[0]
-		g.Expect(guestClient.Delete(ctx, &ec2NodeClass)).To(MatchError(ContainSubstring("EC2NodeClass resource can't be created/updated/deleted directly, please use OpenshiftEC2NodeClass resource instead")))
+		t.Log("Validating default OpenshiftEC2NodeClass exists with expected values")
+		infraID := hostedCluster.Spec.InfraID
+		e2eutil.EventuallyObject(t, ctx, "default OpenshiftEC2NodeClass to have expected spec",
+			func(ctx context.Context) (*hyperkarpenterv1.OpenshiftEC2NodeClass, error) {
+				nc := &hyperkarpenterv1.OpenshiftEC2NodeClass{}
+				err := guestClient.Get(ctx, crclient.ObjectKey{Name: karpenterassets.EC2NodeClassDefault}, nc)
+				return nc, err
+			},
+			[]e2eutil.Predicate[*hyperkarpenterv1.OpenshiftEC2NodeClass]{
+				func(nc *hyperkarpenterv1.OpenshiftEC2NodeClass) (bool, string, error) {
+					if len(nc.Spec.SubnetSelectorTerms) == 0 {
+						return false, "SubnetSelectorTerms is empty", nil
+					}
+					subnetTags := nc.Spec.SubnetSelectorTerms[0].Tags
+					internalELBTagKey := "kubernetes.io/role/internal-elb"
+					if subnetTags[internalELBTagKey] != "1" {
+						return false, fmt.Sprintf("expected subnet tag %s=1, got %v", internalELBTagKey, subnetTags), nil
+					}
+					clusterTagKey := fmt.Sprintf("kubernetes.io/cluster/%s", infraID)
+					if subnetTags[clusterTagKey] != "*" {
+						return false, fmt.Sprintf("expected subnet tag %s=*, got %v", clusterTagKey, subnetTags), nil
+					}
+					if len(nc.Spec.SecurityGroupSelectorTerms) == 0 {
+						return false, "SecurityGroupSelectorTerms is empty", nil
+					}
+					sgTags := nc.Spec.SecurityGroupSelectorTerms[0].Tags
+					discoveryTagKey := "karpenter.sh/discovery"
+					if sgTags[discoveryTagKey] != infraID {
+						return false, fmt.Sprintf("expected SG tag %s=%s, got %v", discoveryTagKey, infraID, sgTags), nil
+					}
+					return true, "default OpenshiftEC2NodeClass has expected fields set", nil
+				},
+			},
+			e2eutil.WithTimeout(1*time.Minute),
+		)
+
+		t.Log("Validating corresponding default EC2NodeClass has immutable service-owned fields set")
+		e2eutil.EventuallyObject(t, ctx, "EC2NodeClass to have service-owned fields populated",
+			func(ctx context.Context) (*awskarpenterv1.EC2NodeClass, error) {
+				nc := &awskarpenterv1.EC2NodeClass{}
+				err := guestClient.Get(ctx, crclient.ObjectKey{Name: karpenterassets.EC2NodeClassDefault}, nc)
+				return nc, err
+			},
+			[]e2eutil.Predicate[*awskarpenterv1.EC2NodeClass]{
+				func(nc *awskarpenterv1.EC2NodeClass) (bool, string, error) {
+					if len(nc.Spec.AMISelectorTerms) == 0 {
+						return false, "AMISelectorTerms is empty", nil
+					}
+					if nc.Spec.AMIFamily == nil || *nc.Spec.AMIFamily != "Custom" {
+						return false, fmt.Sprintf("expected AMIFamily=Custom, got %v", nc.Spec.AMIFamily), nil
+					}
+					if nc.Spec.UserData == nil || strings.TrimSpace(*nc.Spec.UserData) == "" {
+						return false, "UserData is empty", nil
+					}
+					if nc.Spec.Tags["red-hat-clustertype"] != "rosa" {
+						return false, fmt.Sprintf("expected tag red-hat-clustertype=rosa, got %v", nc.Spec.Tags["red-hat-clustertype"]), nil
+					}
+					if nc.Spec.Tags["red-hat-managed"] != "true" {
+						return false, fmt.Sprintf("expected tag red-hat-managed=true, got %v", nc.Spec.Tags["red-hat-managed"]), nil
+					}
+					return true, "default EC2NodeClass has expected fields set", nil
+				},
+			},
+			e2eutil.WithTimeout(1*time.Minute),
+		)
+
+		t.Log("Validating admin cannot delete EC2NodeClass directly")
+		ec2NodeClass := &awskarpenterv1.EC2NodeClass{}
+		g.Expect(guestClient.Get(ctx, crclient.ObjectKey{Name: karpenterassets.EC2NodeClassDefault}, ec2NodeClass)).To(Succeed())
+		g.Expect(guestClient.Delete(ctx, ec2NodeClass)).To(MatchError(ContainSubstring("EC2NodeClass resource can't be created/updated/deleted directly, please use OpenshiftEC2NodeClass resource instead")))
+
+		t.Log("Validating admin cannot modify fields on EC2NodeClass directly")
+		ec2NodeClassCopy := ec2NodeClass.DeepCopy()
+		ec2NodeClassCopy.Spec.AMISelectorTerms = []awskarpenterv1.AMISelectorTerm{{ID: "ami-fake123"}}
+		g.Expect(guestClient.Update(ctx, ec2NodeClassCopy)).To(MatchError(ContainSubstring("EC2NodeClass resource can't be created/updated/deleted directly, please use OpenshiftEC2NodeClass resource instead")))
 
 		t.Log("Validating AutoNodeEnabled condition is set on HostedCluster")
 		e2eutil.EventuallyObject(t, ctx, fmt.Sprintf("HostedCluster %s/%s to have AutoNodeEnabled condition", hostedCluster.Namespace, hostedCluster.Name),
@@ -181,15 +268,6 @@ func testKarpenterPlumbing(ctx context.Context, mgtClient, guestClient crclient.
 			},
 			e2eutil.WithTimeout(2*time.Minute),
 		)
-
-		// TODO(alberto): increase coverage:
-		// - Karpenter operator plumbing, e.g:
-		// -- validate the CRDs are installed
-		// -- validate the default class is created and has expected values
-		// -- validate admin can't modify fields owned by the service, e.g. ami.
-		// - Karpenter functionality:
-		//
-		// Tracked in https://issues.redhat.com/browse/AUTOSCALE-138
 	}
 }
 
