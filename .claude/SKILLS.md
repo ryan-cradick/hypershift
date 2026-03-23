@@ -78,6 +78,29 @@ This directory contains Claude Code skills that are automatically applied when w
 - Promotes best practices for concurrency and error handling
 - Provides quick reference during code reviews
 
+### Konflux Archived PipelineRuns
+
+**Location:** `.claude/skills/konflux-ec-violations/`
+
+**Description:** Accesses archived Konflux PipelineRuns, TaskRuns, and pod logs via KubeArchive. Also analyzes enterprise contract violations.
+
+**Auto-applies when:**
+- Checking results of any completed Konflux PipelineRun
+- Investigating Konflux enterprise contract check failures
+- Retrieving logs from finished Konflux CI builds or tests
+- A PipelineRun is not found via `oc get` in the Konflux namespace
+
+**Covers:**
+- Accessing archived PipelineRuns, TaskRuns, and pod logs via KubeArchive REST API
+- Identifying failing EC checks from GitHub PR check runs
+- Fetching and parsing EC violation logs from archived pods
+- Grouping and presenting violations by rule code
+
+**Benefits:**
+- Retrieves details from PipelineRuns that are no longer available via `oc get`
+- Provides structured violation summaries for quick triage
+- Works without Konflux UI access
+
 ### Debug Cluster
 
 **Location:** `.claude/skills/debug-cluster/`
