@@ -7,19 +7,15 @@ metadata:
     build.appstudio.redhat.com/target_branch: '{{target_branch}}'
     pipelinesascode.tekton.dev/cancel-in-progress: "false"
     pipelinesascode.tekton.dev/max-keep-runs: "3"
-    pipelinesascode.tekton.dev/on-cel-expression: |
-      event == "push"
-      && target_branch == "main"
-      && (files.all.exists(x, !x.matches('^(?:docs|examples|enhancements|contrib|\\.tekton)/|\\.md$|^(?:.*/)?(?:\\.gitignore|OWNERS|PROJECT|LICENSE|renovate\\.json)$'))
-         || ".tekton/pipelines/common-operator-build.yaml".pathChanged()
-         || ".tekton/hypershift-operator-main-push.yaml".pathChanged())
+    pipelinesascode.tekton.dev/on-cel-expression: event == "push" && target_branch
+      == "main" && "Dockerfile.github-actions-runner".pathChanged()
     pipelinesascode.tekton.dev/pipeline: ".tekton/pipelines/common-operator-build.yaml"
-  creationTimestamp:
+  creationTimestamp: null
   labels:
-    appstudio.openshift.io/application: hypershift-operator
-    appstudio.openshift.io/component: hypershift-operator-main
+    appstudio.openshift.io/application: hypershift-actions
+    appstudio.openshift.io/component: hypershift-gh-actions-runner
     pipelines.appstudio.openshift.io/type: build
-  name: hypershift-operator-main-on-push
+  name: hypershift-gh-actions-runner-on-push
   namespace: crt-redhat-acm-tenant
 spec:
   params:
@@ -28,20 +24,19 @@ spec:
   - name: revision
     value: '{{revision}}'
   - name: output-image
-    value: quay.io/redhat-user-workloads/crt-redhat-acm-tenant/hypershift-operator/hypershift-operator-main:{{revision}}
+    value: quay.io/redhat-user-workloads/crt-redhat-acm-tenant/hypershift-gh-actions-runner:{{revision}}
   - name: build-platforms
     value:
-    - linux/x86_64
     - linux/arm64
-    - linux/ppc64le
   - name: dockerfile
-    value: Containerfile.operator
-  - name: path-context
-    value: .
+    value: Dockerfile.github-actions-runner
+  - name: additional-tags
+    value:
+    - latest
   pipelineRef:
     name: hypershift-common-operator-build
   taskRunTemplate:
-    serviceAccountName: build-pipeline-hypershift-operator-main
+    serviceAccountName: build-pipeline-hypershift-gh-actions-runner
   workspaces:
   - name: git-auth
     secret:
