@@ -665,12 +665,16 @@ func (r *AWSEndpointServiceReconciler) rejectVpcEndpointConnections(ctx context.
 
 		for _, conn := range existingConnectionsResult.VpcEndpointConnections {
 			endpointID := aws.ToString(conn.VpcEndpointId)
-			switch conn.VpcEndpointState {
-			case ec2types.StatePendingAcceptance, ec2types.StatePending, ec2types.StateAvailable:
+			// Normalize to lowercase before comparison because the AWS EC2 API returns
+			// lowercase state values (e.g. "available") while the SDK v2 enum constants
+			// are PascalCase (e.g. "Available").
+			normalizedState := toLowerState(conn.VpcEndpointState)
+			switch normalizedState {
+			case toLowerState(ec2types.StatePendingAcceptance), toLowerState(ec2types.StatePending), toLowerState(ec2types.StateAvailable):
 				// Actionable: these connections can be rejected
 				actionableEndpointIDs = append(actionableEndpointIDs, endpointID)
 				log.Info("vpc endpoint connection in actionable state", "endpointID", endpointID, "state", conn.VpcEndpointState)
-			case ec2types.StateDeleted, ec2types.StateFailed, ec2types.StateExpired:
+			case toLowerState(ec2types.StateDeleted), toLowerState(ec2types.StateFailed), toLowerState(ec2types.StateExpired):
 				// Terminal: these connections should not block deletion
 				log.Info("vpc endpoint connection in terminal state", "endpointID", endpointID, "state", conn.VpcEndpointState)
 			default:
@@ -700,6 +704,13 @@ func (r *AWSEndpointServiceReconciler) rejectVpcEndpointConnections(ctx context.
 	return &rejectVpcEndpointConnectionsResult{
 		hasTransitionalConnections: transitionalCount > 0,
 	}, nil
+}
+
+// toLowerState normalizes an ec2types.State to lowercase for case-insensitive comparison.
+// The AWS EC2 API returns lowercase state values (e.g. "available", "pending") while
+// the SDK v2 enum constants are PascalCase (e.g. "Available", "Pending").
+func toLowerState(s ec2types.State) ec2types.State {
+	return ec2types.State(strings.ToLower(string(s)))
 }
 
 func unwrapError(log logr.Logger, err error) error {
