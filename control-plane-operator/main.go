@@ -19,6 +19,7 @@ import (
 	endpointresolver "github.com/openshift/hypershift/control-plane-operator/endpoint-resolver"
 	"github.com/openshift/hypershift/control-plane-operator/featuregates"
 	"github.com/openshift/hypershift/control-plane-operator/hostedclusterconfigoperator"
+	metricsproxy "github.com/openshift/hypershift/control-plane-operator/metrics-proxy"
 	pkiconfig "github.com/openshift/hypershift/control-plane-pki-operator/config"
 	"github.com/openshift/hypershift/dnsresolver"
 	etcdbackup "github.com/openshift/hypershift/etcd-backup"
@@ -105,6 +106,8 @@ func commandFor(name string) *cobra.Command {
 		cmd = etcdbackup.NewFetchCertsCommand()
 	case "endpoint-resolver":
 		cmd = endpointresolver.NewStartCommand()
+	case "metrics-proxy":
+		cmd = metricsproxy.NewStartCommand()
 	default:
 		// for the default case, there is no need
 		// to convert flags, return immediately
@@ -160,6 +163,7 @@ func defaultCommand() *cobra.Command {
 	cmd.AddCommand(syncfgconfigmap.NewRunCommand())
 	cmd.AddCommand(syncglobalpullsecret.NewRunCommand())
 	cmd.AddCommand(endpointresolver.NewStartCommand())
+	cmd.AddCommand(metricsproxy.NewStartCommand())
 	return cmd
 }
 
