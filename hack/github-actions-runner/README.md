@@ -171,10 +171,15 @@ Runners authenticate to GitHub using a **GitHub App** (not a PAT). The App
 credentials are stored in a Kubernetes secret named `github-app-secret` in the
 `arc-runners` namespace.
 
-#### Monitoring
-ARC controller metrics are exposed on port 8080 and scraped by the OpenShift
-Prometheus stack via a `ServiceMonitor`. Metrics include runner health, job
-queue depth, and utilization.
+#### Monitoring & Alerting
+ARC controller and listener metrics are exposed on port 8080 and scraped by
+the OpenShift Prometheus stack via ServiceMonitors. A standalone Grafana
+instance provides dashboards for runner health, queue depth, CI execution
+time, and per-host resource utilization. PrometheusRules fire alerts when
+runners go offline or queue depth indicates a CI bottleneck.
+
+See [Monitoring Setup](#8-set-up-monitoring--alerting) for deployment
+instructions and the `monitoring/` directory for all manifests.
 
 ## Prerequisites
 
@@ -195,6 +200,15 @@ queue depth, and utilization.
 |---|---|
 | `../../Dockerfile.github-actions-runner` | Custom runner image Dockerfile (repo root) |
 | `values.yaml` | Helm values for the RunnerScaleSet |
+| `monitoring/user-workload-monitoring.yaml` | Enables OpenShift user-workload monitoring |
+| `monitoring/user-workload-monitoring-config.yaml` | Persistent storage and retention for Prometheus |
+| `monitoring/service.yaml` | Services for controller and listener metrics |
+| `monitoring/servicemonitor.yaml` | ServiceMonitors for Prometheus scraping |
+| `monitoring/prometheusrule.yaml` | Alert rules (runners offline, queue depth) |
+| `monitoring/grafana.yaml` | Grafana deployment, service, route, RBAC |
+| `monitoring/grafana-datasource.yaml` | Prometheus datasource for Grafana |
+| `monitoring/grafana-dashboard.yaml` | Dashboard ConfigMap (auto-provisioned) |
+| `monitoring/dashboard.json` | Standalone dashboard JSON for portability |
 
 ## Setup Steps
 
@@ -260,47 +274,114 @@ helm install arc-runner-set \
   -f hack/github-actions-runner/values.yaml
 ```
 
-### 6. Set Up Monitoring
+### 6. Enable User-Workload Monitoring
 
-Create a Service and ServiceMonitor for the ARC controller:
+OpenShift's built-in Prometheus only scrapes `openshift-*` namespaces by
+default. Enable user-workload monitoring so it also scrapes `arc-systems`.
+
+> **Note:** These commands modify cluster-level monitoring config. On shared
+> clusters, verify they won't conflict with existing user-workload settings.
 
 ```bash
-kubectl apply -f - <<'EOF'
-apiVersion: v1
-kind: Service
-metadata:
-  name: arc-controller-metrics
-  namespace: arc-systems
-  labels:
-    app.kubernetes.io/name: arc-controller
-spec:
-  selector:
-    app.kubernetes.io/name: gha-rs-controller
-  ports:
-    - name: metrics
-      port: 8080
-      targetPort: 8080
-      protocol: TCP
----
-apiVersion: monitoring.coreos.com/v1
-kind: ServiceMonitor
-metadata:
-  name: arc-controller-metrics
-  namespace: arc-systems
-  labels:
-    app.kubernetes.io/name: arc-controller
-spec:
-  selector:
-    matchLabels:
-      app.kubernetes.io/name: arc-controller
-  endpoints:
-    - port: metrics
-      interval: 30s
-      path: /metrics
-EOF
+# Enable user-workload monitoring (merges with existing config)
+oc patch configmap cluster-monitoring-config \
+  -n openshift-monitoring \
+  --type merge \
+  -p '{"data":{"config.yaml":"enableUserWorkload: true\n"}}'
+
+# Configure retention and persistent storage for user-workload Prometheus
+oc create namespace openshift-user-workload-monitoring --dry-run=client -o yaml | oc apply -f -
+oc apply -f hack/github-actions-runner/monitoring/user-workload-monitoring-config.yaml
 ```
 
-### 7. Configure the NodePool
+Wait for the user-workload monitoring pods to start:
+
+```bash
+oc -n openshift-user-workload-monitoring get pods -w
+```
+
+This configures Prometheus with 50Gi persistent storage (gp3-csi) and 30-day
+retention so metrics survive pod restarts and support capacity planning.
+
+### 7. Set Up Metrics Scraping and Alerts
+
+Deploy the Services, ServiceMonitors, and PrometheusRules:
+
+```bash
+oc apply -f hack/github-actions-runner/monitoring/service.yaml
+oc apply -f hack/github-actions-runner/monitoring/servicemonitor.yaml
+oc apply -f hack/github-actions-runner/monitoring/prometheusrule.yaml
+```
+
+This configures Prometheus to scrape both the ARC controller and listener,
+and creates two alert rules:
+
+| Alert | Fires When | Severity |
+|---|---|---|
+| `ARCRunnersOffline` | 0 registered runners for > 5 min | critical |
+| `ARCQueueDepthHigh` | Queued jobs > 20 for > 10 min | warning |
+
+### 8. Set Up Monitoring & Alerting
+
+Deploy Grafana with OpenShift OAuth authentication and a pre-configured
+dashboard. Before applying, update the hardcoded cluster URLs in
+`grafana.yaml` (marked with `# UPDATE per deployment`) to match your
+cluster's Route hostname.
+
+```bash
+# Ensure namespace exists before creating secrets
+oc create namespace arc-monitoring --dry-run=client -o yaml | oc apply -f -
+
+# Create the cookie secret for the OAuth proxy session
+oc -n arc-monitoring create secret generic grafana-proxy-cookie \
+  --from-literal=session-secret="$(openssl rand -base64 32)"
+
+# Deploy Grafana (creates the Route, Deployment, Service, etc.)
+oc apply -f hack/github-actions-runner/monitoring/grafana.yaml
+
+# Create the OAuthClient (cluster-scoped) and its secret
+# The route must exist before this step so we can read the hostname
+OAUTH_SECRET=$(openssl rand -base64 32)
+GRAFANA_HOST=$(oc -n arc-monitoring get route grafana -o jsonpath='{.spec.host}')
+
+cat <<EOF | oc apply -f -
+apiVersion: oauth.openshift.io/v1
+kind: OAuthClient
+metadata:
+  name: grafana-arc-monitoring
+grantMethod: auto
+secret: ${OAUTH_SECRET}
+redirectURIs:
+  - https://${GRAFANA_HOST}/oauth/callback
+EOF
+
+oc -n arc-monitoring create secret generic grafana-oauth-client \
+  --from-literal=client-secret="${OAUTH_SECRET}"
+
+# Deploy datasource and dashboard
+oc apply -f hack/github-actions-runner/monitoring/grafana-datasource.yaml
+oc apply -f hack/github-actions-runner/monitoring/grafana-dashboard.yaml
+```
+
+Get the Grafana URL:
+
+```bash
+echo "URL: https://$(oc -n arc-monitoring get route grafana -o jsonpath='{.spec.host}')"
+```
+
+Authentication is handled by OpenShift OAuth — any user who can log into
+the OpenShift console can access Grafana as a Viewer.
+
+The dashboard includes panels for:
+- **Runner Health** — registered, busy, idle, and offline runner counts
+- **Queue Depth** — queued vs running jobs over time
+- **Job Execution Duration** — p50, p95, p99 execution time
+- **Job Startup Latency** — p50, p95 time from queued to running
+- **CPU/Memory per Runner Host** — resource utilization grouped by node
+- **Job Throughput** — jobs started and completed per second
+- **Runner Scaling** — desired vs registered vs busy runners over time
+
+### 9. Configure the NodePool
 
 The NodePool should use compute-optimized ARM instances with autoscaling:
 
@@ -346,23 +427,43 @@ After setup, verify:
 
 ```bash
 # ARC controller is running
-kubectl -n arc-systems get pods
+oc -n arc-systems get pods
 
 # Listener is connected to GitHub
-kubectl -n arc-systems logs -l app.kubernetes.io/name=gha-rs-listener --tail=5
+oc -n arc-systems logs -l app.kubernetes.io/name=gha-rs-listener --tail=5
 
 # Runner pod is running
-kubectl -n arc-runners get pods -o wide
+oc -n arc-runners get pods -o wide
 
 # Runner has correct tooling
-RUNNER=$(kubectl -n arc-runners get pods -l app.kubernetes.io/component=runner -o jsonpath='{.items[0].metadata.name}')
-kubectl -n arc-runners exec "$RUNNER" -c runner -- go version
-kubectl -n arc-runners exec "$RUNNER" -c runner -- oc version --client
-kubectl -n arc-runners exec "$RUNNER" -c runner -- make --version
+RUNNER=$(oc -n arc-runners get pods -l app.kubernetes.io/component=runner -o jsonpath='{.items[0].metadata.name}')
+oc -n arc-runners exec "$RUNNER" -c runner -- go version
+oc -n arc-runners exec "$RUNNER" -c runner -- oc version --client
+oc -n arc-runners exec "$RUNNER" -c runner -- make --version
 
 # Network connectivity
-kubectl -n arc-runners exec "$RUNNER" -c runner -- curl -sI https://github.com
-kubectl -n arc-runners exec "$RUNNER" -c runner -- curl -sI https://proxy.golang.org
+oc -n arc-runners exec "$RUNNER" -c runner -- curl -sI https://github.com
+oc -n arc-runners exec "$RUNNER" -c runner -- curl -sI https://proxy.golang.org
+
+# User-workload monitoring is running
+oc -n openshift-user-workload-monitoring get pods
+
+# Metrics are being scraped
+oc -n openshift-user-workload-monitoring exec -c prometheus prometheus-user-workload-0 -- \
+  curl -s 'http://localhost:9090/api/v1/targets' | python3 -c "
+import sys, json
+targets = json.load(sys.stdin)['data']['activeTargets']
+arc = [t for t in targets if 'arc' in t.get('labels', {}).get('job', '')]
+for t in arc:
+    print(f\"{t['labels']['job']}: {t['health']}\")
+"
+
+# Alert rules are loaded
+oc -n arc-systems get prometheusrule arc-runner-alerts
+
+# Grafana is running and accessible
+oc -n arc-monitoring get pods
+oc -n arc-monitoring get route grafana -o jsonpath='{.spec.host}'
 ```
 
 ## Updating the Runner Image
@@ -384,11 +485,27 @@ helm upgrade arc-runner-set \
 
 ## Teardown
 
-To remove the runners and ARC:
+To remove the runners, monitoring, and ARC:
 
 ```bash
+# Remove monitoring
+oc delete oauthclient grafana-arc-monitoring
+oc delete -f hack/github-actions-runner/monitoring/user-workload-monitoring-config.yaml
+oc patch configmap cluster-monitoring-config \
+  -n openshift-monitoring \
+  --type merge \
+  -p '{"data":{"config.yaml":"enableUserWorkload: false\n"}}'
+oc delete -f hack/github-actions-runner/monitoring/grafana-dashboard.yaml
+oc delete -f hack/github-actions-runner/monitoring/grafana-datasource.yaml
+oc delete -f hack/github-actions-runner/monitoring/grafana.yaml
+oc delete -f hack/github-actions-runner/monitoring/prometheusrule.yaml
+oc delete -f hack/github-actions-runner/monitoring/servicemonitor.yaml
+oc delete -f hack/github-actions-runner/monitoring/service.yaml
+
+# Remove runners and ARC
 helm uninstall arc-runner-set --namespace arc-runners
 helm uninstall arc --namespace arc-systems
-kubectl delete namespace arc-runners
-kubectl delete namespace arc-systems
+oc delete namespace arc-runners
+oc delete namespace arc-systems
+oc delete namespace arc-monitoring
 ```
