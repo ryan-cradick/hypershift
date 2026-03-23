@@ -2,11 +2,40 @@ package etcdbackup
 
 import (
 	"net/url"
+	"path/filepath"
 	"strings"
 	"testing"
 
+	. "github.com/onsi/gomega"
+
 	"github.com/aws/aws-sdk-go-v2/aws"
 )
+
+func TestNewStartCommand(t *testing.T) {
+	g := NewWithT(t)
+	cmd := NewStartCommand()
+
+	g.Expect(cmd.Use).To(Equal("etcd-backup"))
+
+	for _, flag := range []string{"backup-dir", "etcd-endpoint", "etcd-client-cert", "etcd-client-key", "etcd-ca-cert"} {
+		g.Expect(cmd.Flags().Lookup(flag)).ToNot(BeNil(), "expected flag %q to exist", flag)
+	}
+
+	// etcd-endpoint should be required
+	err := cmd.ValidateRequiredFlags()
+	g.Expect(err).To(HaveOccurred())
+	g.Expect(err.Error()).To(ContainSubstring("etcd-endpoint"))
+}
+
+func TestNewStartCommandDefaults(t *testing.T) {
+	g := NewWithT(t)
+	cmd := NewStartCommand()
+
+	g.Expect(cmd.Flags().Lookup("backup-dir").DefValue).To(Equal("/tmp"))
+	g.Expect(cmd.Flags().Lookup("etcd-client-cert").DefValue).To(Equal(filepath.Join(DefaultCertsDir, "etcd-client.crt")))
+	g.Expect(cmd.Flags().Lookup("etcd-client-key").DefValue).To(Equal(filepath.Join(DefaultCertsDir, "etcd-client.key")))
+	g.Expect(cmd.Flags().Lookup("etcd-ca-cert").DefValue).To(Equal(filepath.Join(DefaultCertsDir, "ca.crt")))
+}
 
 func TestMapToTags(t *testing.T) {
 	tests := []struct {
