@@ -339,7 +339,7 @@ var _ = Describe("API UX Validation", Label("API"), func() {
 					}
 				})
 				Expect(err).To(HaveOccurred())
-				Expect(err.Error()).To(ContainSubstring("project in body should match"))
+				Expect(err.Error()).To(ContainSubstring("project must start with a lowercase letter"))
 			})
 
 			It("should reject when region has invalid format", func() {
@@ -351,7 +351,7 @@ var _ = Describe("API UX Validation", Label("API"), func() {
 					}
 				})
 				Expect(err).To(HaveOccurred())
-				Expect(err.Error()).To(ContainSubstring("region in body should match"))
+				Expect(err.Error()).To(ContainSubstring("region must be a valid GCP region"))
 			})
 
 			It("should accept when project and region are valid", func() {
@@ -385,7 +385,7 @@ var _ = Describe("API UX Validation", Label("API"), func() {
 					nil, ""),
 				Entry("it should reject non-numeric projectNumber",
 					func(spec *hyperv1.GCPPlatformSpec) { spec.WorkloadIdentity.ProjectNumber = "abc123" },
-					"projectNumber in body should match"),
+					"projectNumber must contain only digits"),
 				Entry("it should reject poolID with reserved 'gcp-' prefix",
 					func(spec *hyperv1.GCPPlatformSpec) { spec.WorkloadIdentity.PoolID = "gcp-reserved" },
 					"Pool ID cannot start with reserved prefix 'gcp-'"),
