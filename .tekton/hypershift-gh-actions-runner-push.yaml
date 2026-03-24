@@ -28,6 +28,8 @@ spec:
   - name: build-platforms
     value:
     - linux/arm64
+  - name: hermetic
+    value: "false"
   - name: dockerfile
     value: Dockerfile.github-actions-runner
   - name: additional-tags

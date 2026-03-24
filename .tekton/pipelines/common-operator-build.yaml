@@ -62,6 +62,10 @@ spec:
       set of values is determined by the configuration of the multi-platform-controller.
     name: build-platforms
     type: array
+  - default: "true"
+    description: Execute the build with network isolation
+    name: hermetic
+    type: string
   - default: []
     description: Additional tags to apply to the built image.
     name: additional-tags
@@ -155,7 +159,7 @@ spec:
     - name: CONTEXT
       value: $(params.path-context)
     - name: HERMETIC
-      value: "true"
+      value: $(params.hermetic)
     - name: PREFETCH_INPUT
       value: $(params.prefetch-input)
     - name: IMAGE_EXPIRES_AFTER
@@ -336,7 +340,7 @@ spec:
     - name: CONTEXT
       value: $(params.path-context)
     - name: HERMETIC
-      value: "true"
+      value: $(params.hermetic)
     - name: PREFETCH_INPUT
       value: $(params.prefetch-input)
     - name: IMAGE_EXPIRES_AFTER
