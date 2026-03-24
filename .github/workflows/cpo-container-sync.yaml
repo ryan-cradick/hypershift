@@ -10,5 +10,5 @@ jobs:
     runs-on: arc-runner-set
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - run: make cpo-container-sync
