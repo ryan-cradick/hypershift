@@ -522,6 +522,7 @@ type Capabilities struct {
 // +kubebuilder:validation:XValidation:rule=`self.platform.type == "Azure" ? self.services.exists(s, s.service == "OAuthServer" && s.servicePublishingStrategy.type == "Route") : true`,message="Azure platform requires OAuthServer to use Route service publishing strategy"
 // +kubebuilder:validation:XValidation:rule=`self.platform.type == "Azure" ? self.services.exists(s, s.service == "Konnectivity" && s.servicePublishingStrategy.type == "Route") : true`,message="Azure platform requires Konnectivity to use Route service publishing strategy"
 // +kubebuilder:validation:XValidation:rule=`self.platform.type == "Azure" ? self.services.exists(s, s.service == "Ignition" && s.servicePublishingStrategy.type == "Route") : true`,message="Azure platform requires Ignition to use Route service publishing strategy"
+// +kubebuilder:validation:XValidation:rule=`self.platform.type == "Azure" ? self.services.exists(s, s.service == "APIServer" && s.servicePublishingStrategy.type == "Route") : true`,message="Azure platform requires APIServer to use Route service publishing strategy"
 // +kubebuilder:validation:XValidation:rule=`has(self.issuerURL) || !has(self.serviceAccountSigningKey)`,message="If serviceAccountSigningKey is set, issuerURL must be set"
 // +kubebuilder:validation:XValidation:rule=`!self.services.exists(s, s.service == 'APIServer' && has(s.servicePublishingStrategy.loadBalancer) && s.servicePublishingStrategy.loadBalancer.hostname != "" && has(self.configuration) && has(self.configuration.apiServer) && self.configuration.apiServer.servingCerts.namedCertificates.exists(cert, cert.names.exists(n, n == s.servicePublishingStrategy.loadBalancer.hostname)))`, message="APIServer loadBalancer hostname cannot be in ClusterConfiguration.apiserver.servingCerts.namedCertificates[]"
 // +kubebuilder:validation:XValidation:rule="!has(self.operatorConfiguration) || !has(self.operatorConfiguration.clusterNetworkOperator) || !has(self.operatorConfiguration.clusterNetworkOperator.disableMultiNetwork) || !self.operatorConfiguration.clusterNetworkOperator.disableMultiNetwork || self.networking.networkType == 'Other'",message="disableMultiNetwork can only be set to true when networkType is 'Other'"
@@ -1046,9 +1047,17 @@ type DNSSpec struct {
 	// publicZoneID is the Hosted Zone ID where all the DNS records that are publicly accessible to the internet exist.
 	// This field is optional and mainly leveraged in cloud environments where the DNS records for the .baseDomain are created by controllers in this zone.
 	// Once set, this value is immutable.
+	//
+	// On Azure, this is a full Azure resource ID for a DNS Zone in the format:
+	//   /subscriptions/{subscriptionID}/resourceGroups/{resourceGroup}/providers/Microsoft.Network/dnsZones/{zoneName}
+	// The maximum length of 258 is derived from Azure resource naming limits
+	// (see https://learn.microsoft.com/en-us/azure/azure-resource-manager/management/resource-name-rules):
+	//   /subscriptions/ (15) + UUID (36) + /resourceGroups/ (16) + resource group name (90)
+	//   + /providers/Microsoft.Network/dnsZones/ (38) + zone name (63) = 258
+	//
 	// +optional
 	// +kubebuilder:validation:XValidation:rule=`oldSelf == "" || self == oldSelf`, message="publicZoneID is immutable"
-	// +kubebuilder:validation:MaxLength=253
+	// +kubebuilder:validation:MaxLength=258
 	// +kubebuilder:validation:MinLength=1
 	// +immutable
 	PublicZoneID string `json:"publicZoneID,omitempty"`
@@ -1056,9 +1065,17 @@ type DNSSpec struct {
 	// privateZoneID is the Hosted Zone ID where all the DNS records that are only available internally to the cluster exist.
 	// This field is optional and mainly leveraged in cloud environments where the DNS records for the .baseDomain are created by controllers in this zone.
 	// Once set, this value is immutable.
+	//
+	// On Azure, this is a full Azure resource ID for a Private DNS Zone in the format:
+	//   /subscriptions/{subscriptionID}/resourceGroups/{resourceGroup}/providers/Microsoft.Network/privateDnsZones/{zoneName}
+	// The maximum length of 265 is derived from Azure resource naming limits
+	// (see https://learn.microsoft.com/en-us/azure/azure-resource-manager/management/resource-name-rules):
+	//   /subscriptions/ (15) + UUID (36) + /resourceGroups/ (16) + resource group name (90)
+	//   + /providers/Microsoft.Network/privateDnsZones/ (45) + zone name (63) = 265
+	//
 	// +optional
 	// +kubebuilder:validation:XValidation:rule=`oldSelf == "" || self == oldSelf`, message="privateZoneID is immutable"
-	// +kubebuilder:validation:MaxLength=253
+	// +kubebuilder:validation:MaxLength=265
 	// +kubebuilder:validation:MinLength=1
 	// +immutable
 	PrivateZoneID string `json:"privateZoneID,omitempty"`
