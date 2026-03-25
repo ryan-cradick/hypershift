@@ -27,6 +27,7 @@ spec:
     value: quay.io/redhat-user-workloads/crt-redhat-acm-tenant/hypershift-gh-actions-runner:{{revision}}
   - name: build-platforms
     value:
+    - linux/amd64
     - linux/arm64
   - name: hermetic
     value: "false"
