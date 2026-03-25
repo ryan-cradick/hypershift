@@ -10,21 +10,12 @@ import (
 
 	"github.com/openshift/hypershift/cmd/util"
 
-	// AWS SDK v2
 	awsv2 "github.com/aws/aws-sdk-go-v2/aws"
 	awsmiddleware "github.com/aws/aws-sdk-go-v2/aws/middleware"
 	"github.com/aws/aws-sdk-go-v2/aws/retry"
 	configv2 "github.com/aws/aws-sdk-go-v2/config"
 	credentialsv2 "github.com/aws/aws-sdk-go-v2/credentials"
-	// AWS SDK v1
-	"github.com/aws/aws-sdk-go/aws"
-	"github.com/aws/aws-sdk-go/aws/client"
-	"github.com/aws/aws-sdk-go/aws/credentials"
-	"github.com/aws/aws-sdk-go/aws/request"
-	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/smithy-go/middleware"
-
-	"k8s.io/utils/ptr"
 
 	"github.com/spf13/pflag"
 )
@@ -70,9 +61,9 @@ func (opts *AWSCredentialsOptions) BindProductFlags(flags *pflag.FlagSet) {
 	flags.StringVar(&opts.STSCredentialsFile, "sts-creds", opts.STSCredentialsFile, "Path to the STS credentials file to use when assuming the role. Can be generated with 'aws sts get-session-token --output json'")
 }
 
-func (opts *AWSCredentialsOptions) GetSession(agent string, secretData *util.CredentialsSecretData, region string) (*session.Session, error) {
+func (opts *AWSCredentialsOptions) GetSession(ctx context.Context, agent string, secretData *util.CredentialsSecretData, region string) (*awsv2.Config, error) {
 	if opts.AWSCredentialsFile != "" {
-		return NewSession(agent, opts.AWSCredentialsFile, "", "", region), nil
+		return NewSession(ctx, agent, opts.AWSCredentialsFile, "", "", region), nil
 	}
 
 	if opts.STSCredentialsFile != "" {
@@ -81,33 +72,7 @@ func (opts *AWSCredentialsOptions) GetSession(agent string, secretData *util.Cre
 			return nil, err
 		}
 
-		return NewSTSSession(agent, opts.RoleArn, region, creds)
-	}
-
-	if secretData != nil {
-		creds := credentials.NewStaticCredentials(
-			secretData.AWSAccessKeyID,
-			secretData.AWSSecretAccessKey,
-			secretData.AWSSessionToken,
-		)
-		return NewSTSSession(agent, opts.RoleArn, region, creds)
-	}
-
-	return nil, errors.New("could not create AWS session, no credentials were given")
-}
-
-func (opts *AWSCredentialsOptions) GetSessionV2(ctx context.Context, agent string, secretData *util.CredentialsSecretData, region string) (*awsv2.Config, error) {
-	if opts.AWSCredentialsFile != "" {
-		return NewSessionV2(ctx, agent, opts.AWSCredentialsFile, "", "", region), nil
-	}
-
-	if opts.STSCredentialsFile != "" {
-		creds, err := ParseSTSCredentialsFileV2(opts.STSCredentialsFile)
-		if err != nil {
-			return nil, err
-		}
-
-		return NewSTSSessionV2(ctx, agent, opts.RoleArn, region, creds)
+		return NewSTSSession(ctx, agent, opts.RoleArn, region, creds)
 	}
 
 	// Credentials from secret data
@@ -118,32 +83,13 @@ func (opts *AWSCredentialsOptions) GetSessionV2(ctx context.Context, agent strin
 			SessionToken:    secretData.AWSSessionToken,
 		}
 
-		return NewSTSSessionV2(ctx, agent, opts.RoleArn, region, &v2Creds)
+		return NewSTSSession(ctx, agent, opts.RoleArn, region, &v2Creds)
 	}
 
 	return nil, errors.New("could not create AWS session, no credentials were given")
 }
 
-func NewSession(agent, credentialsFile, credKey, credSecretKey, region string) *session.Session {
-	sessionOpts := session.Options{}
-	if credentialsFile != "" {
-		sessionOpts.SharedConfigFiles = append(sessionOpts.SharedConfigFiles, credentialsFile)
-	}
-	if credKey != "" && credSecretKey != "" {
-		sessionOpts.Config.Credentials = credentials.NewStaticCredentials(credKey, credSecretKey, "")
-	}
-	if region != "" {
-		sessionOpts.Config.Region = ptr.To(region)
-	}
-	awsSession := session.Must(session.NewSessionWithOptions(sessionOpts))
-	awsSession.Handlers.Build.PushBackNamed(request.NamedHandler{
-		Name: "openshift.io/hypershift",
-		Fn:   request.MakeAddToUserAgentHandler("openshift.io hypershift", agent),
-	})
-	return awsSession
-}
-
-func NewSessionV2(ctx context.Context, agent, credentialsFile, credKey, credSecretKey, region string) *awsv2.Config {
+func NewSession(ctx context.Context, agent, credentialsFile, credKey, credSecretKey, region string) *awsv2.Config {
 	var configOpts []func(*configv2.LoadOptions) error
 	// If no credentials file is explicitly provided, fall back to AWS_SHARED_CREDENTIALS_FILE.
 	// This matches the v1 SDK behavior when AWS_SDK_LOAD_CONFIG=1 is set: the env-var file is
@@ -170,8 +116,8 @@ func NewSessionV2(ctx context.Context, agent, credentialsFile, credKey, credSecr
 	return &cfg
 }
 
-// NewRoute53ConfigV2 creates a v2 retryer with more conservative retry timing for Route53.
-func NewRoute53ConfigV2() func() awsv2.Retryer {
+// NewRoute53Config creates a v2 retryer with more conservative retry timing for Route53.
+func NewRoute53Config() func() awsv2.Retryer {
 	return func() awsv2.Retryer {
 		return retry.NewStandard(func(o *retry.StandardOptions) {
 			o.MaxAttempts = 21                                              // 1 initial + 20 retries
@@ -180,20 +126,8 @@ func NewRoute53ConfigV2() func() awsv2.Retryer {
 	}
 }
 
-// NewConfig creates a new config.
-func NewConfig() *aws.Config {
-
-	awsConfig := aws.NewConfig()
-	awsConfig.Retryer = client.DefaultRetryer{
-		NumMaxRetries:    10,
-		MinRetryDelay:    5 * time.Second,
-		MinThrottleDelay: 5 * time.Second,
-	}
-	return awsConfig
-}
-
-// NewConfigV2 creates a v2 retryer function with the same retry configuration as NewConfig
-func NewConfigV2() func() awsv2.Retryer {
+// NewConfig creates a retryer function with standard retry configuration.
+func NewConfig() func() awsv2.Retryer {
 	return func() awsv2.Retryer {
 		return retry.NewStandard(func(o *retry.StandardOptions) {
 			o.MaxAttempts = 11                                             // 1 initial + 10 retries (match v1's NumMaxRetries: 10)
