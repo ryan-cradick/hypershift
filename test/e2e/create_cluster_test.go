@@ -335,7 +335,7 @@ func TestOnCreateAPIUX(t *testing.T) {
 							spec.Project = "My-Project"
 							hc.Spec.Platform.GCP = spec
 						},
-						expectedErrorSubstring: "project in body should match",
+						expectedErrorSubstring: "project must start with a lowercase letter",
 					},
 					{
 						name: "when GCP region has invalid format it should fail",
@@ -345,7 +345,7 @@ func TestOnCreateAPIUX(t *testing.T) {
 							spec.Region = "us-central"
 							hc.Spec.Platform.GCP = spec
 						},
-						expectedErrorSubstring: "region in body should match",
+						expectedErrorSubstring: "region must be a valid GCP region",
 					},
 					{
 						name: "when GCP project and region are valid it should pass",
@@ -375,7 +375,7 @@ func TestOnCreateAPIUX(t *testing.T) {
 							spec.NetworkConfig.Network.Name = "Invalid-Network-Name"
 							hc.Spec.Platform.GCP = spec
 						},
-						expectedErrorSubstring: "name in body should match",
+						expectedErrorSubstring: "must start with a lowercase letter",
 					},
 					{
 						name: "when GCP privateServiceConnectSubnet name has invalid format it should fail",
@@ -385,7 +385,7 @@ func TestOnCreateAPIUX(t *testing.T) {
 							spec.NetworkConfig.PrivateServiceConnectSubnet.Name = "Invalid--Subnet"
 							hc.Spec.Platform.GCP = spec
 						},
-						expectedErrorSubstring: "name in body should match",
+						expectedErrorSubstring: "must start with a lowercase letter",
 					},
 					{
 						name: "when GCP network name is too long it should fail",
@@ -405,7 +405,7 @@ func TestOnCreateAPIUX(t *testing.T) {
 							spec.NetworkConfig.Network.Name = ""
 							hc.Spec.Platform.GCP = spec
 						},
-						expectedErrorSubstring: "name in body should be at least 1 chars long",
+						expectedErrorSubstring: "Required value",
 					},
 					{
 						name: "when GCP endpointAccess has invalid value it should fail",
