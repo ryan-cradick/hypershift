@@ -6860,10 +6860,6 @@ spec:
                 strategy
               rule: 'self.platform.type == "Azure" ? self.services.exists(s, s.service
                 == "Ignition" && s.servicePublishingStrategy.type == "Route") : true'
-            - message: Azure platform requires APIServer to use Route service publishing
-                strategy
-              rule: 'self.platform.type == "Azure" ? self.services.exists(s, s.service
-                == "APIServer" && s.servicePublishingStrategy.type == "Route") : true'
             - message: If serviceAccountSigningKey is set, issuerURL must be set
               rule: has(self.issuerURL) || !has(self.serviceAccountSigningKey)
             - message: APIServer loadBalancer hostname cannot be in ClusterConfiguration.apiserver.servingCerts.namedCertificates[]
