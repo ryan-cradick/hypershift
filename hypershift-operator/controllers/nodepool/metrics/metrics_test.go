@@ -13,10 +13,8 @@ import (
 	hyperv1 "github.com/openshift/hypershift/api/hypershift/v1beta1"
 	"github.com/openshift/hypershift/support/api"
 
-	awsv2 "github.com/aws/aws-sdk-go-v2/aws"
 	ec2v2 "github.com/aws/aws-sdk-go-v2/service/ec2"
 	ec2typesv2 "github.com/aws/aws-sdk-go-v2/service/ec2/types"
-	pricingv2 "github.com/aws/aws-sdk-go-v2/service/pricing"
 	"github.com/aws/smithy-go"
 
 	corev1 "k8s.io/api/core/v1"
@@ -95,14 +93,6 @@ func (c *Ec2ClientMock) DescribeInstanceTypes(ctx context.Context, input *ec2v2.
 	return c.MockedDescribeInstanceTypesFunc(ctx, input, optFns...)
 }
 
-type PricingClientMock struct {
-	MockedGetProductsFunc func(ctx context.Context, input *pricingv2.GetProductsInput, optFns ...func(*pricingv2.Options)) (*pricingv2.GetProductsOutput, error)
-}
-
-func (m *PricingClientMock) GetProducts(ctx context.Context, input *pricingv2.GetProductsInput, optFns ...func(*pricingv2.Options)) (*pricingv2.GetProductsOutput, error) {
-	return m.MockedGetProductsFunc(ctx, input, optFns...)
-}
-
 func TestReportVCpusCountByHCluster(t *testing.T) {
 	testCases := []struct {
 		name      string
@@ -110,7 +100,6 @@ func TestReportVCpusCountByHCluster(t *testing.T) {
 		configMap *corev1.ConfigMap
 
 		MockedEC2DescribeInstanceTypesFunc func(ctx context.Context, input *ec2v2.DescribeInstanceTypesInput, optFns ...func(*ec2v2.Options)) (*ec2v2.DescribeInstanceTypesOutput, error)
-		MockedGetProductsFunc              func(ctx context.Context, input *pricingv2.GetProductsInput, optFns ...func(*pricingv2.Options)) (*pricingv2.GetProductsOutput, error)
 
 		// expected results
 		expectedVCpusCount            float64
@@ -154,133 +143,30 @@ func TestReportVCpusCountByHCluster(t *testing.T) {
 			},
 			expectedVCpusCount: 32,
 		},
-
 		{
-			name: "When the nodePool EC2 instance type is not valid, we fetch value from pricing APIs",
+			name: "When EC2 API returns unexpected output and no ConfigMap exists, it should report ConfigMap not found",
 			npsParams: []nodePoolParams{
 				{availableNodesCount: 2, ec2InstanceType: "hello_world"},
 			},
 			MockedEC2DescribeInstanceTypesFunc: func(ctx context.Context, input *ec2v2.DescribeInstanceTypesInput, optFns ...func(*ec2v2.Options)) (*ec2v2.DescribeInstanceTypesOutput, error) {
 				return &ec2v2.DescribeInstanceTypesOutput{}, nil
 			},
-			MockedGetProductsFunc: func(ctx context.Context, input *pricingv2.GetProductsInput, optFns ...func(*pricingv2.Options)) (*pricingv2.GetProductsOutput, error) {
-				return &pricingv2.GetProductsOutput{}, fmt.Errorf("pricing API unavailable")
-			},
 			expectedVCpusCount:            -1,
 			expectedVCpusCountErrorReason: string(rosaCPUsInstanceTypesConfigNotFoundErrorReason),
 		},
 		{
-			name: "When EC2 and pricing API fail and configMap fails too, we return the actual error reason",
+			name: "When EC2 API fails and no ConfigMap exists, it should report ConfigMap not found",
 			npsParams: []nodePoolParams{
 				{availableNodesCount: 2, ec2InstanceType: "dream-instance.xlarge"},
-			},
-			MockedEC2DescribeInstanceTypesFunc: func(ctx context.Context, input *ec2v2.DescribeInstanceTypesInput, optFns ...func(*ec2v2.Options)) (*ec2v2.DescribeInstanceTypesOutput, error) {
-				return initDescribeInstanceTypesOutput([]ec2typesv2.InstanceTypeInfo{
-					initInstanceTypeInfo("dream-instance.xlarge", 4)}), newAWSError("InvalidInstanceType", "the instance type is not recognized")
-			},
-			MockedGetProductsFunc: func(ctx context.Context, input *pricingv2.GetProductsInput, optFns ...func(*pricingv2.Options)) (*pricingv2.GetProductsOutput, error) {
-				return nil, fmt.Errorf("pricing API request failed")
-			},
-
-			expectedVCpusCount:            -1,
-			expectedVCpusCountErrorReason: string(rosaCPUsInstanceTypesConfigNotFoundErrorReason),
-		},
-
-		{
-			name: "When EC2 DescribeInstanceTypes return InvalidInstanceType error, pricing.GetProducts return valid but empty data",
-			npsParams: []nodePoolParams{
-				{availableNodesCount: 2, ec2InstanceType: "dream-instance.xlarge"},
-			},
-			MockedEC2DescribeInstanceTypesFunc: func(ctx context.Context, input *ec2v2.DescribeInstanceTypesInput, optFns ...func(*ec2v2.Options)) (*ec2v2.DescribeInstanceTypesOutput, error) {
-				return initDescribeInstanceTypesOutput([]ec2typesv2.InstanceTypeInfo{
-					initInstanceTypeInfo("dream-instance.xlarge", 4)}), newAWSError("InvalidInstanceType", "the instance type is not recognized")
-			},
-			MockedGetProductsFunc: func(ctx context.Context, input *pricingv2.GetProductsInput, optFns ...func(*pricingv2.Options)) (*pricingv2.GetProductsOutput, error) {
-				return &pricingv2.GetProductsOutput{
-					PriceList: []string{
-						`{"bad": "data"}`,
-					},
-				}, nil
-			},
-			expectedVCpusCount:            -1,
-			expectedVCpusCountErrorReason: string(rosaCPUsInstanceTypesConfigNotFoundErrorReason),
-		},
-		{
-			name: "When EC2 DescribeInstanceTypes return InvalidInstanceType error, pricing.GetProducts return bad data",
-			npsParams: []nodePoolParams{
-				{availableNodesCount: 2, ec2InstanceType: "dream-instance.xlarge"},
-			},
-			MockedEC2DescribeInstanceTypesFunc: func(ctx context.Context, input *ec2v2.DescribeInstanceTypesInput, optFns ...func(*ec2v2.Options)) (*ec2v2.DescribeInstanceTypesOutput, error) {
-				return initDescribeInstanceTypesOutput([]ec2typesv2.InstanceTypeInfo{
-					initInstanceTypeInfo("dream-instance.xlarge", 4)}), newAWSError("InvalidInstanceType", "the instance type is not recognized")
-			},
-			MockedGetProductsFunc: func(ctx context.Context, input *pricingv2.GetProductsInput, optFns ...func(*pricingv2.Options)) (*pricingv2.GetProductsOutput, error) {
-				return &pricingv2.GetProductsOutput{
-					PriceList: []string{
-						`{"product": {"attributes": "foo"}}`,
-					},
-				}, nil
-			},
-			expectedVCpusCount:            -1,
-			expectedVCpusCountErrorReason: string(rosaCPUsInstanceTypesConfigNotFoundErrorReason),
-		},
-		{
-			name: "When EC2 DescribeInstanceTypes return InvalidInstanceType error, pricing.GetProducts return nil",
-			npsParams: []nodePoolParams{
-				{availableNodesCount: 2, ec2InstanceType: "dream-instance.xlarge"},
-			},
-			MockedEC2DescribeInstanceTypesFunc: func(ctx context.Context, input *ec2v2.DescribeInstanceTypesInput, optFns ...func(*ec2v2.Options)) (*ec2v2.DescribeInstanceTypesOutput, error) {
-				return initDescribeInstanceTypesOutput([]ec2typesv2.InstanceTypeInfo{
-					initInstanceTypeInfo("dream-instance.xlarge", 4)}), newAWSError("InvalidInstanceType", "the instance type is not recognized")
-			},
-			MockedGetProductsFunc: func(ctx context.Context, input *pricingv2.GetProductsInput, optFns ...func(*pricingv2.Options)) (*pricingv2.GetProductsOutput, error) {
-				return &pricingv2.GetProductsOutput{
-					PriceList: nil,
-				}, nil
-			},
-			expectedVCpusCount:            -1,
-			expectedVCpusCountErrorReason: string(rosaCPUsInstanceTypesConfigNotFoundErrorReason),
-		},
-		{
-			name: "When EC2 DescribeInstanceTypes return InvalidInstanceType error, pricing.GetProducts return bad CPU value",
-			npsParams: []nodePoolParams{
-				{availableNodesCount: 2, ec2InstanceType: "i3.metal"},
 			},
 			MockedEC2DescribeInstanceTypesFunc: func(ctx context.Context, input *ec2v2.DescribeInstanceTypesInput, optFns ...func(*ec2v2.Options)) (*ec2v2.DescribeInstanceTypesOutput, error) {
 				return nil, newAWSError("InvalidInstanceType", "the instance type is not recognized")
 			},
-			MockedGetProductsFunc: func(ctx context.Context, input *pricingv2.GetProductsInput, optFns ...func(*pricingv2.Options)) (*pricingv2.GetProductsOutput, error) {
-				return &pricingv2.GetProductsOutput{
-					FormatVersion: awsv2.String("aws_v1"),
-					NextToken:     awsv2.String("AAMA-TOKEN"),
-					PriceList: []string{
-						`{"product": {"attributes": {"instanceType": "i3.metal", "vcpu": "should be a number"}}}`,
-					}}, nil
-			},
 			expectedVCpusCount:            -1,
 			expectedVCpusCountErrorReason: string(rosaCPUsInstanceTypesConfigNotFoundErrorReason),
 		},
 		{
-			name: "When EC2 DescribeInstanceTypes return InvalidInstanceType error, pricing.GetProducts return valid data",
-			npsParams: []nodePoolParams{
-				{availableNodesCount: 2, ec2InstanceType: "i3.metal"},
-			},
-			MockedEC2DescribeInstanceTypesFunc: func(ctx context.Context, input *ec2v2.DescribeInstanceTypesInput, optFns ...func(*ec2v2.Options)) (*ec2v2.DescribeInstanceTypesOutput, error) {
-				return nil, newAWSError("InvalidInstanceType", "the instance type is not recognized")
-			},
-			MockedGetProductsFunc: func(ctx context.Context, input *pricingv2.GetProductsInput, optFns ...func(*pricingv2.Options)) (*pricingv2.GetProductsOutput, error) {
-				return &pricingv2.GetProductsOutput{
-					FormatVersion: awsv2.String("aws_v1"),
-					NextToken:     awsv2.String("AAMA-TOKEN"),
-					PriceList: []string{
-						`{"product": {"attributes": {"instanceType": "i3.metal", "vcpu": "72"}}}`,
-					}}, nil
-			},
-			expectedVCpusCount:            144,
-			expectedVCpusCountErrorReason: "",
-		},
-		{
-			name: "When EC2 and Pricing APIs fail but ConfigMap contains the instance type, it should resolve vCPUs from ConfigMap",
+			name: "When EC2 API fails but ConfigMap contains the instance type, it should resolve vCPUs from ConfigMap",
 			npsParams: []nodePoolParams{
 				{availableNodesCount: 2, ec2InstanceType: "dream-instance.xlarge"},
 			},
@@ -296,26 +182,8 @@ func TestReportVCpusCountByHCluster(t *testing.T) {
 			MockedEC2DescribeInstanceTypesFunc: func(ctx context.Context, input *ec2v2.DescribeInstanceTypesInput, optFns ...func(*ec2v2.Options)) (*ec2v2.DescribeInstanceTypesOutput, error) {
 				return nil, newAWSError("InvalidInstanceType", "the instance type is not recognized")
 			},
-			MockedGetProductsFunc: func(ctx context.Context, input *pricingv2.GetProductsInput, optFns ...func(*pricingv2.Options)) (*pricingv2.GetProductsOutput, error) {
-				return nil, fmt.Errorf("pricing API unavailable")
-			},
-
 			expectedVCpusCount:            24,
 			expectedVCpusCountErrorReason: "",
-		},
-		{
-			name: "When EC2 and Pricing APIs fail and no ConfigMap exists, it should report ConfigMap not found",
-			npsParams: []nodePoolParams{
-				{availableNodesCount: 2, ec2InstanceType: "dream-instance.xlarge"},
-			},
-			MockedEC2DescribeInstanceTypesFunc: func(ctx context.Context, input *ec2v2.DescribeInstanceTypesInput, optFns ...func(*ec2v2.Options)) (*ec2v2.DescribeInstanceTypesOutput, error) {
-				return nil, newAWSError("InvalidInstanceType", "the instance type is not recognized")
-			},
-			MockedGetProductsFunc: func(ctx context.Context, input *pricingv2.GetProductsInput, optFns ...func(*pricingv2.Options)) (*pricingv2.GetProductsOutput, error) {
-				return nil, fmt.Errorf("pricing API unavailable")
-			},
-			expectedVCpusCount:            -1,
-			expectedVCpusCountErrorReason: string(rosaCPUsInstanceTypesConfigNotFoundErrorReason),
 		},
 		{
 			name: "When EC2 API succeeds and ConfigMap also has a value, it should use the EC2 API vCPU count",
@@ -386,9 +254,6 @@ func TestReportVCpusCountByHCluster(t *testing.T) {
 			ec2MockedClient := &Ec2ClientMock{}
 			ec2MockedClient.MockedDescribeInstanceTypesFunc = tc.MockedEC2DescribeInstanceTypesFunc
 
-			pricingMockedClient := &PricingClientMock{}
-			pricingMockedClient.MockedGetProductsFunc = tc.MockedGetProductsFunc
-
 			for k, npParam := range tc.npsParams {
 				nodePool := &hyperv1.NodePool{
 					ObjectMeta: metav1.ObjectMeta{
@@ -413,7 +278,7 @@ func TestReportVCpusCountByHCluster(t *testing.T) {
 			}
 
 			reg := prometheus.NewPedanticRegistry()
-			reg.MustRegister(createNodePoolsMetricsCollector(clientBuilder.Build(), ec2MockedClient, pricingMockedClient, clock.RealClock{}))
+			reg.MustRegister(createNodePoolsMetricsCollector(clientBuilder.Build(), ec2MockedClient, clock.RealClock{}))
 
 			allMetricsValues, err := reg.Gather()
 			if err != nil {
@@ -537,13 +402,7 @@ func TestCollectConcurrency(t *testing.T) {
 		},
 	}
 
-	pricingMock := &PricingClientMock{
-		MockedGetProductsFunc: func(ctx context.Context, input *pricingv2.GetProductsInput, optFns ...func(*pricingv2.Options)) (*pricingv2.GetProductsOutput, error) {
-			return &pricingv2.GetProductsOutput{}, nil
-		},
-	}
-
-	collector := createNodePoolsMetricsCollector(fakeClient, ec2Mock, pricingMock, clock.RealClock{})
+	collector := createNodePoolsMetricsCollector(fakeClient, ec2Mock, clock.RealClock{})
 
 	const goroutines = 10
 	var wg sync.WaitGroup
@@ -577,10 +436,10 @@ func drainVCpuValue(ch <-chan prometheus.Metric) float64 {
 }
 
 func TestErrorCache(t *testing.T) {
-	t.Run("When both EC2 and Pricing APIs report unknown instance type, it should cache the error and skip API calls on subsequent collections", func(t *testing.T) {
+	t.Run("When EC2 API reports unknown instance type, it should cache the error and skip API calls on subsequent collections", func(t *testing.T) {
 		g := NewWithT(t)
 
-		var ec2CallCount, pricingCallCount int
+		var ec2CallCount int
 
 		hcluster := &hyperv1.HostedCluster{
 			ObjectMeta: metav1.ObjectMeta{Name: "hc", Namespace: "any"},
@@ -622,36 +481,27 @@ func TestErrorCache(t *testing.T) {
 			},
 		}
 
-		pricingMock := &PricingClientMock{
-			MockedGetProductsFunc: func(ctx context.Context, input *pricingv2.GetProductsInput, optFns ...func(*pricingv2.Options)) (*pricingv2.GetProductsOutput, error) {
-				pricingCallCount++
-				return &pricingv2.GetProductsOutput{PriceList: nil}, nil
-			},
-		}
+		collector := createNodePoolsMetricsCollector(fakeClient, ec2Mock, clock.RealClock{}).(*nodePoolsMetricsCollector)
 
-		collector := createNodePoolsMetricsCollector(fakeClient, ec2Mock, pricingMock, clock.RealClock{}).(*nodePoolsMetricsCollector)
-
-		// First collect: both APIs called, error cached, ConfigMap resolves vCPUs.
+		// First collect: EC2 API called, error cached, ConfigMap resolves vCPUs.
 		ch := make(chan prometheus.Metric, 200)
 		collector.Collect(ch)
 		close(ch)
 		g.Expect(ec2CallCount).To(Equal(1))
-		g.Expect(pricingCallCount).To(Equal(1))
 		g.Expect(drainVCpuValue(ch)).To(BeNumerically("==", 16)) // 2 replicas * 8 vCPUs
 
-		// Second collect: error cache hit, APIs skipped, ConfigMap used directly.
+		// Second collect: error cache hit, EC2 API skipped, ConfigMap used directly.
 		ch = make(chan prometheus.Metric, 200)
 		collector.Collect(ch)
 		close(ch)
 		g.Expect(ec2CallCount).To(Equal(1), "EC2 API should not be called again due to error cache")
-		g.Expect(pricingCallCount).To(Equal(1), "Pricing API should not be called again due to error cache")
 		g.Expect(drainVCpuValue(ch)).To(BeNumerically("==", 16))
 	})
 
-	t.Run("When Pricing API returns a transient error, it should not cache and should retry APIs on subsequent collections", func(t *testing.T) {
+	t.Run("When EC2 API returns a transient error, it should not cache and should retry on subsequent collections", func(t *testing.T) {
 		g := NewWithT(t)
 
-		var ec2CallCount, pricingCallCount int
+		var ec2CallCount int
 
 		hcluster := &hyperv1.HostedCluster{
 			ObjectMeta: metav1.ObjectMeta{Name: "hc", Namespace: "any"},
@@ -681,31 +531,22 @@ func TestErrorCache(t *testing.T) {
 		ec2Mock := &Ec2ClientMock{
 			MockedDescribeInstanceTypesFunc: func(ctx context.Context, input *ec2v2.DescribeInstanceTypesInput, optFns ...func(*ec2v2.Options)) (*ec2v2.DescribeInstanceTypesOutput, error) {
 				ec2CallCount++
-				return nil, newAWSError("InvalidInstanceType", "the instance type is not recognized")
-			},
-		}
-
-		pricingMock := &PricingClientMock{
-			MockedGetProductsFunc: func(ctx context.Context, input *pricingv2.GetProductsInput, optFns ...func(*pricingv2.Options)) (*pricingv2.GetProductsOutput, error) {
-				pricingCallCount++
 				return nil, fmt.Errorf("network timeout")
 			},
 		}
 
-		collector := createNodePoolsMetricsCollector(fakeClient, ec2Mock, pricingMock, clock.RealClock{}).(*nodePoolsMetricsCollector)
+		collector := createNodePoolsMetricsCollector(fakeClient, ec2Mock, clock.RealClock{}).(*nodePoolsMetricsCollector)
 
-		// First collect: both APIs called, both fail, no ConfigMap → vCPUs = -1.
+		// First collect: EC2 API called, fails with transient error, no ConfigMap -> vCPUs = -1.
 		ch := make(chan prometheus.Metric, 200)
 		collector.Collect(ch)
 		close(ch)
 		g.Expect(ec2CallCount).To(Equal(1))
-		g.Expect(pricingCallCount).To(Equal(1))
 
-		// Second collect: error NOT cached (Pricing returned transient error), both APIs retried.
+		// Second collect: error NOT cached (transient error), EC2 API retried.
 		ch = make(chan prometheus.Metric, 200)
 		collector.Collect(ch)
 		close(ch)
-		g.Expect(ec2CallCount).To(Equal(2), "EC2 API should be retried when Pricing error was transient")
-		g.Expect(pricingCallCount).To(Equal(2), "Pricing API should be retried when its error was transient")
+		g.Expect(ec2CallCount).To(Equal(2), "EC2 API should be retried when its error was transient")
 	})
 }

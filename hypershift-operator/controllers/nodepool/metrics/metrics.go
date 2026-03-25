@@ -2,7 +2,6 @@ package metrics
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"strconv"
 	"sync"
@@ -13,11 +12,8 @@ import (
 	"github.com/openshift/hypershift/support/awsapi"
 	"github.com/openshift/hypershift/support/conditions"
 
-	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/ec2"
 	ec2types "github.com/aws/aws-sdk-go-v2/service/ec2/types"
-	"github.com/aws/aws-sdk-go-v2/service/pricing"
-	pricingtypes "github.com/aws/aws-sdk-go-v2/service/pricing/types"
 	"github.com/aws/smithy-go"
 
 	corev1 "k8s.io/api/core/v1"
@@ -140,14 +136,13 @@ var (
 
 type nodePoolsMetricsCollector struct {
 	client.Client
-	ec2Client     ec2.DescribeInstanceTypesAPIClient
-	pricingClient PricingAPI
-	clock         clock.Clock
-	mu            sync.Mutex
+	ec2Client ec2.DescribeInstanceTypesAPIClient
+	clock     clock.Clock
+	mu        sync.Mutex
 
 	ec2InstanceTypeToVCpusCount map[string]int32
 	// awsInstanceTypeUnknown caches instance types that are not recognized
-	// by both the EC2 and Pricing APIs, so subsequent calls skip those APIs
+	// by the EC2 API, so subsequent calls skip the API
 	// and go directly to the ConfigMap fallback.
 	awsInstanceTypeUnknown sets.Set[string]
 
@@ -156,14 +151,10 @@ type nodePoolsMetricsCollector struct {
 	lastCollectTime time.Time
 }
 
-// PricingAPI is the interface for Pricing GetProducts, satisfied by the SDK client.
-type PricingAPI = pricing.GetProductsAPIClient
-
-func createNodePoolsMetricsCollector(client client.Client, ec2Client ec2.DescribeInstanceTypesAPIClient, pricingClient PricingAPI, clock clock.Clock) prometheus.Collector {
+func createNodePoolsMetricsCollector(client client.Client, ec2Client ec2.DescribeInstanceTypesAPIClient, clock clock.Clock) prometheus.Collector {
 	return &nodePoolsMetricsCollector{
 		Client:                      client,
 		ec2Client:                   ec2Client,
-		pricingClient:               pricingClient,
 		clock:                       clock,
 		ec2InstanceTypeToVCpusCount: make(map[string]int32),
 		awsInstanceTypeUnknown:      sets.New[string](),
@@ -176,8 +167,8 @@ func createNodePoolsMetricsCollector(client client.Client, ec2Client ec2.Describ
 	}
 }
 
-func CreateAndRegisterNodePoolsMetricsCollector(client client.Client, ec2Client awsapi.EC2API, pricingClient PricingAPI) prometheus.Collector {
-	collector := createNodePoolsMetricsCollector(client, ec2Client, pricingClient, clock.RealClock{})
+func CreateAndRegisterNodePoolsMetricsCollector(client client.Client, ec2Client awsapi.EC2API) prometheus.Collector {
+	collector := createNodePoolsMetricsCollector(client, ec2Client, clock.RealClock{})
 
 	metrics.Registry.MustRegister(collector)
 
@@ -221,7 +212,6 @@ type errorReason string
 // Error reason constants for vCPU lookup failures
 const (
 	noAWSEC2ClientErrorReason                      errorReason = "no AWS EC2 client"
-	noAWSPricingClientErrorReason                  errorReason = "no AWS Pricing client"
 	unexpectedAWSOutputErrorReason                 errorReason = "unexpected AWS output"
 	failedToCallAWSErrorReason                     errorReason = "failed to call AWS"
 	unknownInstanceTypeErrorReason                 errorReason = "unknown instance type"
@@ -233,58 +223,6 @@ const (
 	rosaCPUsInstanceTypeConfigMapName     = "rosa-cpus-instance-types-config"
 	rosaCPUInstanceTypeConfigMapNamespace = "hypershift"
 )
-
-func extractCPUFromInstanceTypeNameViaPricingAPI(instanceTypeName string, pricingClient PricingAPI) (int32, errorReason) {
-	if pricingClient == nil {
-		ctrllog.Log.Error(errors.New(string(noAWSPricingClientErrorReason)),
-			"cannot retrieve the number of vCPUs for instance type "+instanceTypeName+" as the Pricing client used to query AWS API is not properly initialized")
-		return -1, noAWSPricingClientErrorReason
-	}
-
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	pricingInput := &pricing.GetProductsInput{
-		ServiceCode: aws.String("AmazonEC2"),
-		Filters: []pricingtypes.Filter{
-			{
-				Type:  pricingtypes.FilterTypeTermMatch,
-				Field: aws.String("instanceType"),
-				Value: aws.String(instanceTypeName),
-			},
-		},
-	}
-	pricingResult, err := pricingClient.GetProducts(ctx, pricingInput)
-	if err != nil {
-		ctrllog.Log.Error(err, "failed to call AWS Pricing API to resolve the number of vCPUs for instance type "+instanceTypeName)
-		return -1, failedToCallAWSErrorReason
-	}
-	// Unlike the EC2 API, the Pricing API does not return a smithy
-	// "InvalidInstanceType" error for unknown instance types. Instead it
-	// returns an empty PriceList.
-	if pricingResult == nil || len(pricingResult.PriceList) == 0 {
-		ctrllog.Log.Error(errors.New(string(unknownInstanceTypeErrorReason)),
-			"no pricing data found for instance type "+instanceTypeName)
-		return -1, unknownInstanceTypeErrorReason
-	}
-
-	// In AWS SDK v2, PriceList is []string where each string is a JSON object
-	for _, priceItemJSON := range pricingResult.PriceList {
-		var priceItem PriceItemInstance
-		if err := json.Unmarshal([]byte(priceItemJSON), &priceItem); err != nil {
-			continue
-		}
-		if priceItem.Product.Attributes.VCPU != "" {
-			value, err := strconv.ParseInt(priceItem.Product.Attributes.VCPU, 10, 32)
-			if err != nil {
-				continue
-			}
-			return int32(value), ""
-		}
-	}
-	ctrllog.Log.Error(errors.New(string(unknownInstanceTypeErrorReason)),
-		"unable to resolve vCPU count from AWS Pricing API for instance type "+instanceTypeName)
-	return -1, unknownInstanceTypeErrorReason
-}
 
 func extractCPUFromInstanceTypeNameViaEC2API(instanceTypeName string, ec2Client ec2.DescribeInstanceTypesAPIClient) (int32, errorReason) {
 	if ec2Client == nil {
@@ -369,8 +307,8 @@ func (c *nodePoolsMetricsCollector) retrieveVCpusDetailsPerNode(nodePool *hyperv
 		return vCpusCountPerNode, ""
 	}
 
-	// If this instance type was previously determined to be unknown by both
-	// the EC2 and Pricing APIs, skip them and go directly to the ConfigMap.
+	// If this instance type was previously determined to be unknown by
+	// the EC2 API, skip it and go directly to the ConfigMap.
 	if c.awsInstanceTypeUnknown.Has(ec2InstanceType) {
 		return extractCPUFromInstanceTypeNameViaConfigMap(ec2InstanceType, c.Client)
 	}
@@ -382,20 +320,13 @@ func (c *nodePoolsMetricsCollector) retrieveVCpusDetailsPerNode(nodePool *hyperv
 		return vCpusCount, ""
 	}
 
-	// Try Pricing API
-	vCpusCount, pricingErrReason := extractCPUFromInstanceTypeNameViaPricingAPI(ec2InstanceType, c.pricingClient)
-	if pricingErrReason == "" {
-		c.ec2InstanceTypeToVCpusCount[ec2InstanceType] = vCpusCount
-		return vCpusCount, ""
-	}
-
-	// Cache the fact that both APIs do not recognize this instance type
+	// Cache the fact that the EC2 API does not recognize this instance type
 	// so that subsequent calls skip straight to the ConfigMap fallback.
-	if ec2ErrReason == unknownInstanceTypeErrorReason && pricingErrReason == unknownInstanceTypeErrorReason {
+	if ec2ErrReason == unknownInstanceTypeErrorReason {
 		c.awsInstanceTypeUnknown.Insert(ec2InstanceType)
 	}
 
-	// Try ConfigMap as last resort. ConfigMap values may change without
+	// Try ConfigMap as fallback. ConfigMap values may change without
 	// restarting the operator. The controller-runtime client has an
 	// informer-based cache, so repeated Get calls hit the local cache,
 	// not the API server. We intentionally do not cache ConfigMap results
