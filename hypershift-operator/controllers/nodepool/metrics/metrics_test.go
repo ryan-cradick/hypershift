@@ -152,7 +152,7 @@ func TestReportVCpusCountByHCluster(t *testing.T) {
 				return &ec2v2.DescribeInstanceTypesOutput{}, nil
 			},
 			expectedVCpusCount:            -1,
-			expectedVCpusCountErrorReason: string(rosaCPUsInstanceTypesConfigNotFoundErrorReason),
+			expectedVCpusCountErrorReason: errRosaCPUsInstanceTypesConfigNotFound.Error(),
 		},
 		{
 			name: "When EC2 API fails and no ConfigMap exists, it should report ConfigMap not found",
@@ -163,7 +163,7 @@ func TestReportVCpusCountByHCluster(t *testing.T) {
 				return nil, newAWSError("InvalidInstanceType", "the instance type is not recognized")
 			},
 			expectedVCpusCount:            -1,
-			expectedVCpusCountErrorReason: string(rosaCPUsInstanceTypesConfigNotFoundErrorReason),
+			expectedVCpusCountErrorReason: errRosaCPUsInstanceTypesConfigNotFound.Error(),
 		},
 		{
 			name: "When EC2 API fails but ConfigMap contains the instance type, it should resolve vCPUs from ConfigMap",
