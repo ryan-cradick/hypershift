@@ -1228,9 +1228,10 @@ func TestControlPlaneComponents(t *testing.T) {
 				},
 				Manifest: fakeimagemetadataprovider.FakeManifest{},
 			},
-			HCP:                    hcp,
-			SkipPredicate:          true,
-			SkipCertificateSigning: true,
+			HCP:                            hcp,
+			SkipPredicate:                  true,
+			SkipCertificateSigning:         true,
+			NativeSidecarContainersEnabled: true,
 		}
 
 		cpContext.HCP.Spec.Configuration.FeatureGate.FeatureGateSelection.FeatureSet = tt.featureSet
