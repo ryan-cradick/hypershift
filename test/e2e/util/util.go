@@ -46,7 +46,7 @@ import (
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	ec2types "github.com/aws/aws-sdk-go-v2/service/ec2/types"
-	route53v2 "github.com/aws/aws-sdk-go-v2/service/route53"
+	"github.com/aws/aws-sdk-go-v2/service/route53"
 	route53types "github.com/aws/aws-sdk-go-v2/service/route53/types"
 
 	k8sadmissionv1 "k8s.io/api/admissionregistration/v1"
@@ -2780,7 +2780,7 @@ func createIngressRoute53Record(t *testing.T, ctx context.Context, client crclie
 	awsSession, err := clusterOpts.AWSPlatform.Credentials.GetSession(ctx, "e2e-openstack-dns-record-on-aws", nil, awsRegion)
 	g.Expect(err).ToNot(HaveOccurred(), "failed to create AWS session")
 
-	route53Client := route53v2.NewFromConfig(*awsSession, func(o *route53v2.Options) {
+	route53Client := route53.NewFromConfig(*awsSession, func(o *route53.Options) {
 		o.Retryer = awsutil.NewRoute53Config()()
 	})
 	g.Expect(route53Client).ToNot(BeNil(), "failed to create Route53 client")
@@ -2813,7 +2813,7 @@ func deleteIngressRoute53Records(t *testing.T, ctx context.Context, hostedCluste
 	awsSession, err := clusterOpts.AWSPlatform.Credentials.GetSession(ctx, "e2e-openstack-dns-record-on-aws", nil, awsRegion)
 	g.Expect(err).ToNot(HaveOccurred(), "failed to create AWS session")
 
-	route53Client := route53v2.NewFromConfig(*awsSession, func(o *route53v2.Options) {
+	route53Client := route53.NewFromConfig(*awsSession, func(o *route53.Options) {
 		o.Retryer = awsutil.NewRoute53Config()()
 	})
 	g.Expect(route53Client).ToNot(BeNil(), "failed to create Route53 client")

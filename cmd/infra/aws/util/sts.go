@@ -8,14 +8,14 @@ import (
 
 	supportawsutil "github.com/openshift/hypershift/support/awsutil"
 
-	awsv2 "github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/aws"
 	awsmiddleware "github.com/aws/aws-sdk-go-v2/aws/middleware"
-	configv2 "github.com/aws/aws-sdk-go-v2/config"
-	v2credentials "github.com/aws/aws-sdk-go-v2/credentials"
+	"github.com/aws/aws-sdk-go-v2/config"
+	"github.com/aws/aws-sdk-go-v2/credentials"
 	"github.com/aws/smithy-go/middleware"
 )
 
-func NewSTSSession(ctx context.Context, agent, roleArn, region string, assumeRoleCreds *awsv2.Credentials) (*awsv2.Config, error) {
+func NewSTSSession(ctx context.Context, agent, roleArn, region string, assumeRoleCreds *aws.Credentials) (*aws.Config, error) {
 	if assumeRoleCreds == nil {
 		return nil, fmt.Errorf("assumeRoleCreds cannot be nil")
 	}
@@ -26,13 +26,13 @@ func NewSTSSession(ctx context.Context, agent, roleArn, region string, assumeRol
 		return nil, fmt.Errorf("agent cannot be empty")
 	}
 
-	cfg, err := configv2.LoadDefaultConfig(ctx,
-		configv2.WithCredentialsProvider(v2credentials.StaticCredentialsProvider{
+	cfg, err := config.LoadDefaultConfig(ctx,
+		config.WithCredentialsProvider(credentials.StaticCredentialsProvider{
 			Value: *assumeRoleCreds,
 		}),
 	)
 	if err != nil {
-		return nil, fmt.Errorf("failed to load v2 config: %w", err)
+		return nil, fmt.Errorf("failed to load config: %w", err)
 	}
 
 	assumedCreds, err := supportawsutil.AssumeRole(ctx, cfg, agent, roleArn)
@@ -40,19 +40,19 @@ func NewSTSSession(ctx context.Context, agent, roleArn, region string, assumeRol
 		return nil, err
 	}
 
-	var loadOptions []func(*configv2.LoadOptions) error
-	loadOptions = append(loadOptions, configv2.WithCredentialsProvider(
-		v2credentials.StaticCredentialsProvider{
+	var loadOptions []func(*config.LoadOptions) error
+	loadOptions = append(loadOptions, config.WithCredentialsProvider(
+		credentials.StaticCredentialsProvider{
 			Value: *assumedCreds,
 		},
 	))
 	if region != "" {
-		loadOptions = append(loadOptions, configv2.WithRegion(region))
+		loadOptions = append(loadOptions, config.WithRegion(region))
 	}
-	loadOptions = append(loadOptions, configv2.WithAPIOptions([]func(*middleware.Stack) error{
+	loadOptions = append(loadOptions, config.WithAPIOptions([]func(*middleware.Stack) error{
 		awsmiddleware.AddUserAgentKeyValue("openshift.io hypershift", agent),
 	}))
-	finalCfg, err := configv2.LoadDefaultConfig(ctx, loadOptions...)
+	finalCfg, err := config.LoadDefaultConfig(ctx, loadOptions...)
 	if err != nil {
 		return nil, fmt.Errorf("failed to load final config: %w", err)
 	}
@@ -65,7 +65,7 @@ type STSCreds struct {
 }
 
 // ParseSTSCredentialsFile parses an STS credentials file and returns credentials.
-func ParseSTSCredentialsFile(credentialsFile string) (*awsv2.Credentials, error) {
+func ParseSTSCredentialsFile(credentialsFile string) (*aws.Credentials, error) {
 	var stsCreds STSCreds
 
 	rawSTSCreds, err := os.ReadFile(credentialsFile)
@@ -77,7 +77,7 @@ func ParseSTSCredentialsFile(credentialsFile string) (*awsv2.Credentials, error)
 		return nil, fmt.Errorf("failed to unmarshal sts credentials: %w", err)
 	}
 
-	creds := awsv2.Credentials{
+	creds := aws.Credentials{
 		AccessKeyID:     stsCreds.Credentials.AccessKeyId,
 		SecretAccessKey: stsCreds.Credentials.SecretAccessKey,
 		SessionToken:    stsCreds.Credentials.SessionToken,

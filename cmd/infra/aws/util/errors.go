@@ -3,7 +3,7 @@ package util
 import (
 	"errors"
 
-	configv2 "github.com/aws/aws-sdk-go-v2/config"
+	"github.com/aws/aws-sdk-go-v2/config"
 
 	utilerrors "k8s.io/apimachinery/pkg/util/errors"
 )
@@ -37,6 +37,6 @@ func IsErrorRetryable(err error) bool {
 }
 
 func isCredentialLoadError(err error) bool {
-	var sharedCfgErr configv2.SharedConfigLoadError
+	var sharedCfgErr config.SharedConfigLoadError
 	return errors.As(err, &sharedCfgErr)
 }
