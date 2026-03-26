@@ -413,6 +413,11 @@ type HostedControlPlaneStatus struct {
 	// +optional
 	NodeCount *int `json:"nodeCount,omitempty"`
 
+	// autoNode contains the observed state of the autoNode (Karpenter) provisioner.
+	// +openshift:enable:FeatureGate=AutoNodeKarpenter
+	// +optional
+	AutoNode AutoNodeStatus `json:"autoNode,omitzero"`
+
 	// configuration contains the cluster configuration status of the HostedCluster
 	// +optional
 	Configuration *ConfigurationStatus `json:"configuration,omitempty"`
