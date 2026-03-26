@@ -1,0 +1,5 @@
+codecov:
+  branch: main
+
+comment:
+  layout: "condensed_header, diff, flags, components"
