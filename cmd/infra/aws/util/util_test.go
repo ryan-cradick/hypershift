@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	awsv2 "github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/aws"
 )
 
 func TestNewSession(t *testing.T) {
@@ -22,7 +22,7 @@ func TestNewSession(t *testing.T) {
 		setupFunc       func(t *testing.T) string
 		cleanupFunc     func(t *testing.T, path string)
 		expectNonNil    bool
-		validateConfig  func(t *testing.T, cfg *awsv2.Config)
+		validateConfig  func(t *testing.T, cfg *aws.Config)
 	}{
 		{
 			name:          "When given static credentials and region, it should create config with region",
@@ -31,7 +31,7 @@ func TestNewSession(t *testing.T) {
 			credSecretKey: "test-secret",
 			region:        "us-east-1",
 			expectNonNil:  true,
-			validateConfig: func(t *testing.T, cfg *awsv2.Config) {
+			validateConfig: func(t *testing.T, cfg *aws.Config) {
 				if cfg.Region != "us-east-1" {
 					t.Errorf("Expected region us-east-1, got %s", cfg.Region)
 				}
@@ -55,7 +55,7 @@ aws_secret_access_key = test-secret-key
 				}
 				return credsFile
 			},
-			validateConfig: func(t *testing.T, cfg *awsv2.Config) {
+			validateConfig: func(t *testing.T, cfg *aws.Config) {
 				if cfg.Region != "us-west-2" {
 					t.Errorf("Expected region us-west-2, got %s", cfg.Region)
 				}
@@ -68,7 +68,7 @@ aws_secret_access_key = test-secret-key
 			credSecretKey: "test-secret",
 			region:        "",
 			expectNonNil:  true,
-			validateConfig: func(t *testing.T, cfg *awsv2.Config) {
+			validateConfig: func(t *testing.T, cfg *aws.Config) {
 				// Region should be empty or default
 				// We just verify the config is created
 				if cfg == nil {
@@ -80,7 +80,7 @@ aws_secret_access_key = test-secret-key
 			name:         "When given minimal configuration, it should create valid config",
 			agent:        "minimal-agent",
 			expectNonNil: true,
-			validateConfig: func(t *testing.T, cfg *awsv2.Config) {
+			validateConfig: func(t *testing.T, cfg *aws.Config) {
 				if cfg == nil {
 					t.Error("Expected non-nil config")
 				}

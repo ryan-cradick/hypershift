@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	awsv2 "github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/aws"
 )
 
 func TestNewSTSSession_Validation(t *testing.T) {
@@ -17,7 +17,7 @@ func TestNewSTSSession_Validation(t *testing.T) {
 		agent           string
 		roleArn         string
 		region          string
-		assumeRoleCreds *awsv2.Credentials
+		assumeRoleCreds *aws.Credentials
 		expectError     bool
 		errorContains   string
 	}{
@@ -35,7 +35,7 @@ func TestNewSTSSession_Validation(t *testing.T) {
 			agent:   "test-agent",
 			roleArn: "",
 			region:  "us-east-1",
-			assumeRoleCreds: &awsv2.Credentials{
+			assumeRoleCreds: &aws.Credentials{
 				AccessKeyID:     "test-key",
 				SecretAccessKey: "test-secret",
 			},
@@ -47,7 +47,7 @@ func TestNewSTSSession_Validation(t *testing.T) {
 			agent:   "",
 			roleArn: "arn:aws:iam::123456789012:role/TestRole",
 			region:  "us-east-1",
-			assumeRoleCreds: &awsv2.Credentials{
+			assumeRoleCreds: &aws.Credentials{
 				AccessKeyID:     "test-key",
 				SecretAccessKey: "test-secret",
 			},
@@ -59,7 +59,7 @@ func TestNewSTSSession_Validation(t *testing.T) {
 			agent:   "test-agent",
 			roleArn: "arn:aws:iam::123456789012:role/TestRole",
 			region:  "us-east-1",
-			assumeRoleCreds: &awsv2.Credentials{
+			assumeRoleCreds: &aws.Credentials{
 				AccessKeyID:     "test-key",
 				SecretAccessKey: "test-secret",
 				SessionToken:    "test-token",
@@ -112,7 +112,7 @@ func TestNewSTSSession_ValidationOrder(t *testing.T) {
 	}
 
 	// Should return roleArn error when credentials are valid
-	_, err = NewSTSSession(ctx, "", "", "us-east-1", &awsv2.Credentials{
+	_, err = NewSTSSession(ctx, "", "", "us-east-1", &aws.Credentials{
 		AccessKeyID:     "test",
 		SecretAccessKey: "test",
 	})
@@ -124,7 +124,7 @@ func TestNewSTSSession_ValidationOrder(t *testing.T) {
 	}
 
 	// Should return agent error when credentials and roleArn are valid
-	_, err = NewSTSSession(ctx, "", "arn:aws:iam::123456789012:role/TestRole", "us-east-1", &awsv2.Credentials{
+	_, err = NewSTSSession(ctx, "", "arn:aws:iam::123456789012:role/TestRole", "us-east-1", &aws.Credentials{
 		AccessKeyID:     "test",
 		SecretAccessKey: "test",
 	})
@@ -143,7 +143,7 @@ func TestParseSTSCredentialsFile(t *testing.T) {
 		setupFunc     func(t *testing.T) string
 		expectError   bool
 		errorContains string
-		validateCreds func(t *testing.T, creds *awsv2.Credentials)
+		validateCreds func(t *testing.T, creds *aws.Credentials)
 	}{
 		{
 			name: "When given valid STS credentials file, it should parse successfully",
@@ -156,7 +156,7 @@ func TestParseSTSCredentialsFile(t *testing.T) {
   }
 }`,
 			expectError: false,
-			validateCreds: func(t *testing.T, creds *awsv2.Credentials) {
+			validateCreds: func(t *testing.T, creds *aws.Credentials) {
 				if creds.AccessKeyID != "ASIA1234567890EXAMPLE" {
 					t.Errorf("Expected AccessKeyID ASIA1234567890EXAMPLE, got %s", creds.AccessKeyID)
 				}
@@ -179,7 +179,7 @@ func TestParseSTSCredentialsFile(t *testing.T) {
   }
 }`,
 			expectError: false,
-			validateCreds: func(t *testing.T, creds *awsv2.Credentials) {
+			validateCreds: func(t *testing.T, creds *aws.Credentials) {
 				if creds.AccessKeyID != "TESTKEY123" {
 					t.Errorf("Expected AccessKeyID TESTKEY123, got %s", creds.AccessKeyID)
 				}
@@ -211,7 +211,7 @@ func TestParseSTSCredentialsFile(t *testing.T) {
   "SomeOtherField": "value"
 }`,
 			expectError: false,
-			validateCreds: func(t *testing.T, creds *awsv2.Credentials) {
+			validateCreds: func(t *testing.T, creds *aws.Credentials) {
 				// When Credentials field is missing, all fields will be empty strings
 				if creds.AccessKeyID != "" {
 					t.Errorf("Expected empty AccessKeyID, got %s", creds.AccessKeyID)
@@ -230,7 +230,7 @@ func TestParseSTSCredentialsFile(t *testing.T) {
   }
 }`,
 			expectError: false,
-			validateCreds: func(t *testing.T, creds *awsv2.Credentials) {
+			validateCreds: func(t *testing.T, creds *aws.Credentials) {
 				if creds.AccessKeyID != "PARTIALKEY" {
 					t.Errorf("Expected AccessKeyID PARTIALKEY, got %s", creds.AccessKeyID)
 				}

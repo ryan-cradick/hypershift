@@ -21,7 +21,7 @@ import (
 	"github.com/openshift/hypershift/cmd/util"
 	"github.com/openshift/hypershift/test/e2e/util/dump"
 
-	awsv2 "github.com/aws/aws-sdk-go-v2/aws"
+	awssdk "github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/aws/arn"
 	"github.com/aws/aws-sdk-go-v2/service/resourcegroupstaggingapi"
 	resourcegroupstaggingapitypes "github.com/aws/aws-sdk-go-v2/service/resourcegroupstaggingapi/types"
@@ -310,7 +310,7 @@ func validateAWSGuestResourcesDeletedFunc(ctx context.Context, t *testing.T, inf
 				},
 				TagFilters: []resourcegroupstaggingapitypes.TagFilter{
 					{
-						Key:    awsv2.String(clusterTag(infraID)),
+						Key:    awssdk.String(clusterTag(infraID)),
 						Values: []string{"owned"},
 					},
 				},
@@ -339,13 +339,13 @@ func validateAWSGuestResourcesDeletedFunc(ctx context.Context, t *testing.T, inf
 			} else if hasGuestResources(t, lastOutput.ResourceTagMappingList) {
 				t.Logf("Failed to clean up %d remaining resources for guest cluster", len(lastOutput.ResourceTagMappingList))
 				for i := 0; i < len(lastOutput.ResourceTagMappingList); i++ {
-					resourceARN, err := arn.Parse(awsv2.ToString(lastOutput.ResourceTagMappingList[i].ResourceARN))
+					resourceARN, err := arn.Parse(awssdk.ToString(lastOutput.ResourceTagMappingList[i].ResourceARN))
 					if err != nil {
 						// We are only decoding for additional information, proceed on error
 						continue
 					}
 					t.Logf("Resource: %s, tags: %s, service: %s",
-						awsv2.ToString(lastOutput.ResourceTagMappingList[i].ResourceARN), resourceTags(lastOutput.ResourceTagMappingList[i].Tags), resourceARN.Service)
+						awssdk.ToString(lastOutput.ResourceTagMappingList[i].ResourceARN), resourceTags(lastOutput.ResourceTagMappingList[i].Tags), resourceARN.Service)
 				}
 			}
 		}
@@ -355,21 +355,21 @@ func validateAWSGuestResourcesDeletedFunc(ctx context.Context, t *testing.T, inf
 func resourceTags(tags []resourcegroupstaggingapitypes.Tag) string {
 	tagStrings := make([]string, len(tags))
 	for i, tag := range tags {
-		tagStrings[i] = fmt.Sprintf("%s=%s", awsv2.ToString(tag.Key), awsv2.ToString(tag.Value))
+		tagStrings[i] = fmt.Sprintf("%s=%s", awssdk.ToString(tag.Key), awssdk.ToString(tag.Value))
 	}
 	return strings.Join(tagStrings, ",")
 }
 
 func hasGuestResources(t *testing.T, resourceTagMappings []resourcegroupstaggingapitypes.ResourceTagMapping) bool {
 	for _, mapping := range resourceTagMappings {
-		resourceARN, err := arn.Parse(awsv2.ToString(mapping.ResourceARN))
+		resourceARN, err := arn.Parse(awssdk.ToString(mapping.ResourceARN))
 		if err != nil {
-			t.Logf("WARNING: failed to parse ARN %s", awsv2.ToString(mapping.ResourceARN))
+			t.Logf("WARNING: failed to parse ARN %s", awssdk.ToString(mapping.ResourceARN))
 			continue
 		}
 		if resourceARN.Service == "ec2" { // Resource is a volume, check whether it's a PV volume by looking at tags
 			for _, tag := range mapping.Tags {
-				if awsv2.ToString(tag.Key) == "kubernetes.io/created-for/pv/name" {
+				if awssdk.ToString(tag.Key) == "kubernetes.io/created-for/pv/name" {
 					return true
 				}
 			}
