@@ -26,6 +26,7 @@ import (
 	hyperv1 "github.com/openshift/hypershift/api/hypershift/v1beta1"
 	"github.com/openshift/hypershift/cmd/oadp"
 	"github.com/openshift/hypershift/support/conditions"
+	"github.com/openshift/hypershift/support/supportedversion"
 	"github.com/openshift/hypershift/test/e2e/util"
 	"github.com/openshift/hypershift/test/e2e/v2/backuprestore"
 	"github.com/openshift/hypershift/test/e2e/v2/internal"
@@ -135,7 +136,15 @@ var _ = Describe("BackupRestore", Label("backup-restore"), Ordered, Serial, func
 			nodePool, err := getNodePool(testCtx)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(nodePool).NotTo(BeNil())
-			for conditionType, conditionStatus := range conditions.ExpectedNodePoolConditions(nodePool) {
+			npConditions := conditions.ExpectedNodePoolConditions(nodePool)
+
+			latestVersion, err := supportedversion.GetLatestSupportedOCPVersion(testCtx.Context, testCtx.MgmtClient)
+			Expect(err).NotTo(HaveOccurred())
+			if latestVersion.LT(util.Version421) {
+				delete(npConditions, hyperv1.NodePoolSupportedVersionSkewConditionType)
+			}
+
+			for conditionType, conditionStatus := range npConditions {
 				expectedConditions = append(expectedConditions, util.Condition{
 					Type:   conditionType,
 					Status: metav1.ConditionStatus(conditionStatus),
