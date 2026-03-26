@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"reflect"
+	"strings"
 	"time"
 
 	hyperv1 "github.com/openshift/hypershift/api/hypershift/v1beta1"
@@ -278,15 +279,16 @@ func reconcileEC2NodeClass(ctx context.Context, ec2NodeClass *awskarpenterv1.EC2
 	}
 
 	ec2NodeClass.Spec = awskarpenterv1.EC2NodeClassSpec{
-		UserData:                 ptr.To(string(userDataSecret.Data["value"])),
-		AMIFamily:                ptr.To("Custom"),
-		AMISelectorTerms:         amiSelectorTerms,
-		AssociatePublicIPAddress: openshiftEC2NodeClass.Spec.KarpenterAssociatePublicIPAddress(),
-		Tags:                     mergeEC2NodeClassTags(ctx, openshiftEC2NodeClass, hcp),
-		DetailedMonitoring:       openshiftEC2NodeClass.Spec.KarpenterDetailedMonitoring(),
-		BlockDeviceMappings:      openshiftEC2NodeClass.Spec.KarpenterBlockDeviceMapping(),
-		InstanceStorePolicy:      openshiftEC2NodeClass.Spec.KarpenterInstanceStorePolicy(),
-		MetadataOptions:          openshiftEC2NodeClass.Spec.KarpenterMetadataOptions(),
+		UserData:                         ptr.To(string(userDataSecret.Data["value"])),
+		AMIFamily:                        ptr.To("Custom"),
+		AMISelectorTerms:                 amiSelectorTerms,
+		AssociatePublicIPAddress:         openshiftEC2NodeClass.Spec.KarpenterAssociatePublicIPAddress(),
+		Tags:                             mergeEC2NodeClassTags(ctx, openshiftEC2NodeClass, hcp),
+		DetailedMonitoring:               openshiftEC2NodeClass.Spec.KarpenterDetailedMonitoring(),
+		BlockDeviceMappings:              openshiftEC2NodeClass.Spec.KarpenterBlockDeviceMapping(),
+		InstanceStorePolicy:              openshiftEC2NodeClass.Spec.KarpenterInstanceStorePolicy(),
+		MetadataOptions:                  openshiftEC2NodeClass.Spec.KarpenterMetadataOptions(),
+		CapacityReservationSelectorTerms: openshiftEC2NodeClass.Spec.KarpenterCapacityReservationSelectorTerms(),
 	}
 
 	// Set instance profile from HostedCluster annotation (platform-controlled)
@@ -376,6 +378,27 @@ func (r *EC2NodeClassReconciler) reconcileStatus(ctx context.Context, ec2NodeCla
 		})
 	}
 	openshiftNodeClass.Status.Subnets = subnets
+
+	// Sync CapacityReservations from upstream EC2NodeClass.
+	// Upstream karpenter uses lowercase enum values (open, targeted, default, capacity-block,
+	// active, expiring) while our API uses PascalCase (Open, Targeted, Default, CapacityBlock,
+	// Active, Expiring), so we convert here.
+	openshiftNodeClass.Status.CapacityReservations = nil
+	for _, cr := range ec2NodeClass.Status.CapacityReservations {
+		resolved := hyperkarpenterv1.CapacityReservation{
+			AvailabilityZone:      cr.AvailabilityZone,
+			ID:                    cr.ID,
+			InstanceMatchCriteria: upstreamInstanceMatchCriteria(cr.InstanceMatchCriteria),
+			InstanceType:          cr.InstanceType,
+			OwnerID:               cr.OwnerID,
+			ReservationType:       upstreamReservationType(cr.ReservationType),
+			State:                 upstreamReservationState(cr.State),
+		}
+		if cr.EndTime != nil {
+			resolved.EndTime = *cr.EndTime
+		}
+		openshiftNodeClass.Status.CapacityReservations = append(openshiftNodeClass.Status.CapacityReservations, resolved)
+	}
 
 	// Sync conditions from the upstream EC2NodeClass. Use SetStatusCondition so that
 	// conditions managed by the ignition controller are preserved.
@@ -732,4 +755,32 @@ func filterRestrictedTags(tags map[string]string) (map[string]string, []string) 
 	}
 
 	return filteredTags, removedTags
+}
+
+// upstreamInstanceMatchCriteria converts upstream karpenter's lowercase instanceMatchCriteria
+// values (open, targeted) to our PascalCase API values (Open, Targeted).
+func upstreamInstanceMatchCriteria(value string) hyperkarpenterv1.InstanceMatchCriteria {
+	return hyperkarpenterv1.InstanceMatchCriteria(strings.ToUpper(value[:1]) + value[1:])
+}
+
+// upstreamReservationType converts upstream karpenter's CapacityReservationType
+// values (default, capacity-block) to our PascalCase API values (Default, CapacityBlock).
+func upstreamReservationType(value awskarpenterv1.CapacityReservationType) hyperkarpenterv1.CapacityReservationType {
+	switch value {
+	case awskarpenterv1.CapacityReservationTypeCapacityBlock:
+		return hyperkarpenterv1.CapacityReservationTypeCapacityBlock
+	default:
+		return hyperkarpenterv1.CapacityReservationTypeDefault
+	}
+}
+
+// upstreamReservationState converts upstream karpenter's CapacityReservationState
+// values (active, expiring) to our PascalCase API values (Active, Expiring).
+func upstreamReservationState(value awskarpenterv1.CapacityReservationState) hyperkarpenterv1.CapacityReservationState {
+	switch value {
+	case awskarpenterv1.CapacityReservationStateExpiring:
+		return hyperkarpenterv1.CapacityReservationStateExpiring
+	default:
+		return hyperkarpenterv1.CapacityReservationStateActive
+	}
 }

@@ -26,6 +26,24 @@ func (spec OpenshiftEC2NodeClassSpec) KarpenterBlockDeviceMapping() []*awskarpen
 	return blockDeviceMapping
 }
 
+func (spec OpenshiftEC2NodeClassSpec) KarpenterCapacityReservationSelectorTerms() []awskarpenterv1.CapacityReservationSelectorTerm {
+	if spec.CapacityReservationSelectorTerms == nil {
+		return nil
+	}
+	var terms []awskarpenterv1.CapacityReservationSelectorTerm
+	for _, term := range spec.CapacityReservationSelectorTerms {
+		terms = append(terms, awskarpenterv1.CapacityReservationSelectorTerm{
+			Tags:    term.Tags,
+			ID:      term.ID,
+			OwnerID: term.OwnerID,
+			// Our API uses PascalCase enum values (Open, Targeted) while upstream
+			// karpenter uses lowercase (open, targeted), so we convert here.
+			InstanceMatchCriteria: strings.ToLower(string(term.InstanceMatchCriteria)),
+		})
+	}
+	return terms
+}
+
 func (spec OpenshiftEC2NodeClassSpec) KarpenterInstanceStorePolicy() *awskarpenterv1.InstanceStorePolicy {
 	if spec.InstanceStorePolicy == "" {
 		return nil
