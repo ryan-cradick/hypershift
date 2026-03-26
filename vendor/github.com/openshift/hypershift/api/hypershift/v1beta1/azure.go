@@ -360,6 +360,7 @@ type AzureNodePoolOSDisk struct {
 // fields of the Hosted Cluster CR. An existing cloud resource is expected to exist under the same SubscriptionID.
 //
 // +kubebuilder:validation:XValidation:rule="has(self.private) == has(oldSelf.private)",message="private cannot be added or removed after cluster creation"
+// +kubebuilder:validation:XValidation:rule="!has(oldSelf.topology) || has(self.topology)",message="topology cannot be removed once set"
 // +kubebuilder:validation:XValidation:rule="!has(self.topology) || !has(oldSelf.topology) || (self.topology == 'Public') == (oldSelf.topology == 'Public')",message="transitions between Public and non-Public topology are not supported"
 // +kubebuilder:validation:XValidation:rule="!has(self.topology) || ((self.topology == 'Private' || self.topology == 'PublicAndPrivate') ? has(self.private) : !has(self.private))",message="private is required when topology is Private or PublicAndPrivate, and forbidden otherwise"
 // +kubebuilder:validation:XValidation:rule="!has(self.private) || !has(self.private.privateLink) || self.azureAuthenticationConfig.azureAuthenticationConfigType != 'WorkloadIdentities' || has(self.azureAuthenticationConfig.workloadIdentities.controlPlaneOperator)",message="workloadIdentities.controlPlaneOperator is required when Private Link is configured with WorkloadIdentities authentication"

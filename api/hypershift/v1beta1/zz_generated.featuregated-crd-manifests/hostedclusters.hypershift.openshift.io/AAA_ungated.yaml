@@ -5183,6 +5183,8 @@ spec:
                     x-kubernetes-validations:
                     - message: private cannot be added or removed after cluster creation
                       rule: has(self.private) == has(oldSelf.private)
+                    - message: topology cannot be removed once set
+                      rule: '!has(oldSelf.topology) || has(self.topology)'
                     - message: transitions between Public and non-Public topology
                         are not supported
                       rule: '!has(self.topology) || !has(oldSelf.topology) || (self.topology
