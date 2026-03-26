@@ -30,7 +30,10 @@ spec:
     value: 5d
   - name: build-platforms
     value:
+    - linux/amd64
     - linux/arm64
+  - name: hermetic
+    value: "false"
   - name: dockerfile
     value: Dockerfile.github-actions-runner
   pipelineRef:

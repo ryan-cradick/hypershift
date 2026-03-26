@@ -4,7 +4,9 @@ go 1.25.3
 
 require (
 	github.com/ahmetb/gen-crd-api-reference-docs v0.3.0
+	github.com/gobwas/glob v0.2.3
 	github.com/golangci/golangci-lint/v2 v2.11.1
+	github.com/google/cel-go v0.26.1
 	github.com/openshift/api/tools v0.0.0-20250915151906-94481d71bb6f
 	go.uber.org/mock v0.6.0
 	gotest.tools/gotestsum v1.13.0
@@ -12,6 +14,7 @@ require (
 	k8s.io/code-generator v0.34.2
 	k8s.io/utils v0.0.0-20260108192941-914a6e750570
 	sigs.k8s.io/kube-api-linter v0.0.0-20260206102632-39e3d06a2850
+	sigs.k8s.io/yaml v1.6.0
 )
 
 require (
@@ -115,7 +118,6 @@ require (
 	github.com/go-viper/mapstructure/v2 v2.5.0 // indirect
 	github.com/go-xmlfmt/xmlfmt v1.1.3 // indirect
 	github.com/gobuffalo/flect v1.0.3 // indirect
-	github.com/gobwas/glob v0.2.3 // indirect
 	github.com/goccy/go-json v0.10.3 // indirect
 	github.com/goccy/go-yaml v1.18.0 // indirect
 	github.com/godoc-lint/godoc-lint v0.11.2 // indirect
@@ -132,7 +134,6 @@ require (
 	github.com/golangci/revgrep v0.8.0 // indirect
 	github.com/golangci/swaggoswag v0.0.0-20250504205917-77f2aca3143e // indirect
 	github.com/golangci/unconvert v0.0.0-20250410112200-a129a6e6413e // indirect
-	github.com/google/cel-go v0.26.1 // indirect
 	github.com/google/gnostic-models v0.7.0 // indirect
 	github.com/google/go-cmp v0.7.0 // indirect
 	github.com/google/shlex v0.0.0-20191202100458-e7afc7fbc510 // indirect
@@ -320,7 +321,6 @@ require (
 	sigs.k8s.io/json v0.0.0-20250730193827-2d320260d730 // indirect
 	sigs.k8s.io/randfill v1.0.0 // indirect
 	sigs.k8s.io/structured-merge-diff/v6 v6.3.0 // indirect
-	sigs.k8s.io/yaml v1.6.0 // indirect
 )
 
 replace sigs.k8s.io/controller-tools => github.com/openshift/controller-tools v0.12.1-0.20250402141027-24f590ca0886
