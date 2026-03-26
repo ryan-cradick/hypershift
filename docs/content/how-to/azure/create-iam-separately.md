@@ -60,7 +60,7 @@ where:
 
 Running this command creates:
 
-* 7 User-Assigned Managed Identities (one per cluster component):
+* 8 User-Assigned Managed Identities (one per cluster component):
     - Disk CSI driver
     - File CSI driver
     - Image Registry
@@ -68,7 +68,24 @@ Running this command creates:
     - Cloud Provider
     - NodePool Management
     - Network Operator
+    - Control Plane Operator
 * Federated Identity Credentials for each identity, configured with the OIDC issuer
+
+## Private Endpoint Access
+
+The **Control Plane Operator** identity is always created by `create iam azure`. For private
+clusters, this identity is used to manage Private Endpoints, Private DNS zones, VNet links,
+and DNS A records in the guest subscription.
+
+The CPO identity is assigned the **Contributor** role by default, scoped to the managed
+resource group, NSG resource group, and VNet resource group. When using
+`--assign-custom-hcp-roles`, a more restrictive custom role is used instead.
+
+!!! note
+
+    The private endpoint access topology is configured during cluster creation using
+    `--endpoint-access Private` on the `hypershift create cluster azure` command.
+    See [Deploy Azure Private Clusters](deploy-azure-private-clusters.md) for details.
 
 ## Output Format
 
@@ -91,9 +108,15 @@ The output file contains the workload identities in JSON format, directly consum
   "ingress": { ... },
   "cloudProvider": { ... },
   "nodePoolManagement": { ... },
-  "network": { ... }
+  "network": { ... },
+  "controlPlaneOperator": { ... }
 }
 ```
+
+!!! note
+
+    The `controlPlaneOperator` entry is always present. For public clusters, this identity
+    is created but not used by the control plane operator.
 
 ## Using Pre-created Identities
 
@@ -246,3 +269,4 @@ hypershift destroy iam azure \
 - [Create Azure Infrastructure Separately](create-infra-separately.md)
 - [Azure Workload Identity Setup](azure-workload-identity-setup.md)
 - [Self-Managed Azure Overview](self-managed-azure-index.md)
+- [Deploy Azure Private Clusters](deploy-azure-private-clusters.md) — End-to-end guide for private endpoint access
