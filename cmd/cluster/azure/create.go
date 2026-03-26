@@ -15,6 +15,8 @@ import (
 	"github.com/openshift/hypershift/support/azureutil"
 	"github.com/openshift/hypershift/support/config"
 
+	"github.com/Azure/azure-sdk-for-go/sdk/azcore/arm"
+
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/utils/ptr"
 
@@ -70,6 +72,7 @@ func NewCreateCommand(opts *core.RawCreateOptions) *cobra.Command {
 
 func BindOptions(opts *RawCreateOptions, flags *pflag.FlagSet) {
 	bindCoreOptions(opts, flags)
+	bindEndpointAccessFlags(opts, flags)
 	azurenodepool.BindOptions(opts.NodePoolOpts, flags)
 }
 
@@ -103,9 +106,17 @@ func bindCoreOptions(opts *RawCreateOptions, flags *pflag.FlagSet) {
 	flags.StringVar(&opts.DNSZoneRGName, "dns-zone-rg-name", opts.DNSZoneRGName, util.DNSZoneRGNameDescription)
 }
 
+// bindEndpointAccessFlags binds the endpoint access flags for Azure private connectivity
+func bindEndpointAccessFlags(opts *RawCreateOptions, flags *pflag.FlagSet) {
+	flags.StringVar(&opts.EndpointAccess, "endpoint-access", string(hyperv1.AzureTopologyPublic), util.EndpointAccessDescription)
+	flags.StringVar(&opts.EndpointAccessPrivateNATSubnetID, "endpoint-access-private-nat-subnet-id", "", util.EndpointAccessPrivateNATSubnetIDDescription)
+	flags.StringSliceVar(&opts.EndpointAccessPrivateAdditionalAllowedSubscriptions, "endpoint-access-private-additional-allowed-subscriptions", nil, util.EndpointAccessPrivateAdditionalAllowedSubscriptionsDescription)
+}
+
 // BindDeveloperOptions binds developer/development only options for the Azure create cluster command
 func BindDeveloperOptions(opts *RawCreateOptions, flags *pflag.FlagSet) {
 	bindCoreOptions(opts, flags)
+	bindEndpointAccessFlags(opts, flags)
 }
 
 // BindProductFlags binds customer-facing flags for self-managed Azure in the product CLI
@@ -131,6 +142,9 @@ func BindProductFlags(opts *RawCreateOptions, flags *pflag.FlagSet) {
 
 	// Encryption
 	flags.StringVar(&opts.EncryptionKeyID, "encryption-key-id", opts.EncryptionKeyID, util.EncryptionKeyIDDescription)
+
+	// Private connectivity flags
+	bindEndpointAccessFlags(opts, flags)
 
 	// Nodepool flags
 	azurenodepool.BindProductFlags(opts.NodePoolOpts, flags)
@@ -171,6 +185,25 @@ func (o *RawCreateOptions) Validate(ctx context.Context, _ *core.CreateOptions) 
 	}
 	if o.ManagedIdentitiesFile != "" && o.DataPlaneIdentitiesFile == "" {
 		return nil, fmt.Errorf("--managed-identities-file requires --data-plane-identities-file")
+	}
+
+	// Validate the endpoint access value if provided
+	if o.EndpointAccess != "" {
+		validEndpointAccessValues := []string{string(hyperv1.AzureTopologyPublic), string(hyperv1.AzureTopologyPublicAndPrivate), string(hyperv1.AzureTopologyPrivate)}
+		if !slices.Contains(validEndpointAccessValues, o.EndpointAccess) {
+			return nil, fmt.Errorf("--endpoint-access must be one of: Public, PublicAndPrivate, Private")
+		}
+	}
+
+	// Validate NAT subnet resource ID format if provided
+	if o.EndpointAccessPrivateNATSubnetID != "" {
+		natSubnet, parseErr := arm.ParseResourceID(o.EndpointAccessPrivateNATSubnetID)
+		if parseErr != nil {
+			return nil, fmt.Errorf("--endpoint-access-private-nat-subnet-id is not a valid Azure resource ID: %w", parseErr)
+		}
+		if !strings.EqualFold(natSubnet.ResourceType.Type, "virtualNetworks/subnets") {
+			return nil, fmt.Errorf("--endpoint-access-private-nat-subnet-id must be a subnet resource ID (Microsoft.Network/virtualNetworks/subnets), got %q", natSubnet.ResourceType.String())
+		}
 	}
 
 	validOpts := &ValidatedCreateOptions{
@@ -224,7 +257,7 @@ func (o *ValidatedCreateOptions) Complete(ctx context.Context, opts *core.Create
 			return nil, fmt.Errorf("failed to deserialize infra json file: %w", err)
 		}
 	} else {
-		infraOpts, err := CreateInfraOptions(ctx, o, opts)
+		infraOpts, err := CreateInfraOptions(o, opts)
 		if err != nil {
 			return nil, err
 		}
@@ -284,6 +317,25 @@ func (o *CreateOptions) ApplyPlatformSpecifics(cluster *hyperv1.HostedCluster) e
 			SubnetID:          o.infra.SubnetID,
 			SecurityGroupID:   o.infra.SecurityGroupID,
 		},
+	}
+
+	if o.EndpointAccess != "" && o.EndpointAccess != string(hyperv1.AzureTopologyPublic) {
+		cluster.Spec.Platform.Azure.Topology = hyperv1.AzureTopologyType(o.EndpointAccess)
+		additionalSubs := make([]hyperv1.AzureSubscriptionID, len(o.EndpointAccessPrivateAdditionalAllowedSubscriptions))
+		for i, s := range o.EndpointAccessPrivateAdditionalAllowedSubscriptions {
+			additionalSubs[i] = hyperv1.AzureSubscriptionID(s)
+		}
+		cluster.Spec.Platform.Azure.Private = hyperv1.AzurePrivateSpec{
+			Type: hyperv1.AzurePrivateTypePrivateLink,
+			PrivateLink: hyperv1.AzurePrivateLinkSpec{
+				NATSubnetID:                    hyperv1.AzureSubnetResourceID(o.EndpointAccessPrivateNATSubnetID),
+				AdditionalAllowedSubscriptions: additionalSubs,
+			},
+		}
+	} else if o.infra.WorkloadIdentities != nil {
+		// Topology is required for WorkloadIdentities (self-managed) clusters.
+		// Default to Public when not explicitly set.
+		cluster.Spec.Platform.Azure.Topology = hyperv1.AzureTopologyPublic
 	}
 
 	// Configure authentication based on whether workload identities or managed identities are provided
@@ -349,16 +401,22 @@ func (o *CreateOptions) ApplyPlatformSpecifics(cluster *hyperv1.HostedCluster) e
 				}
 
 			case hyperv1.Konnectivity:
-				cluster.Spec.Services[i].Route = &hyperv1.RoutePublishingStrategy{
-					Hostname: fmt.Sprintf("konnectivity-%s.%s", cluster.Name, o.externalDNSDomain),
+				if o.EndpointAccess == "" || o.EndpointAccess == string(hyperv1.AzureTopologyPublic) {
+					cluster.Spec.Services[i].Route = &hyperv1.RoutePublishingStrategy{
+						Hostname: fmt.Sprintf("konnectivity-%s.%s", cluster.Name, o.externalDNSDomain),
+					}
 				}
+
 			case hyperv1.Ignition:
-				cluster.Spec.Services[i].Route = &hyperv1.RoutePublishingStrategy{
-					Hostname: fmt.Sprintf("ignition-%s.%s", cluster.Name, o.externalDNSDomain),
+				if o.EndpointAccess == "" || o.EndpointAccess == string(hyperv1.AzureTopologyPublic) {
+					cluster.Spec.Services[i].Route = &hyperv1.RoutePublishingStrategy{
+						Hostname: fmt.Sprintf("ignition-%s.%s", cluster.Name, o.externalDNSDomain),
+					}
 				}
 			}
 		}
 	}
+
 	return nil
 }
 
@@ -540,7 +598,7 @@ func (o *CreateOptions) GenerateResources() ([]crclient.Object, error) {
 }
 
 // CreateInfraOptions creates the Azure infrastructure options for the HostedCluster create cluster command
-func CreateInfraOptions(ctx context.Context, azureOpts *ValidatedCreateOptions, opts *core.CreateOptions) (azureinfra.CreateInfraOptions, error) {
+func CreateInfraOptions(azureOpts *ValidatedCreateOptions, opts *core.CreateOptions) (azureinfra.CreateInfraOptions, error) {
 	return azureinfra.CreateInfraOptions{
 		Name:                        opts.Name,
 		Location:                    azureOpts.Location,

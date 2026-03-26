@@ -318,6 +318,7 @@ func (o *CreateInfraOptions) Validate() error {
 	if o.BaseDomain == "" {
 		return fmt.Errorf("--base-domain is required")
 	}
+
 	return nil
 }
 
