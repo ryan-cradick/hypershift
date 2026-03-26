@@ -16,6 +16,7 @@ package main
 
 import (
 	"context"
+	"crypto/tls"
 	"fmt"
 	"os"
 	"strings"
@@ -57,6 +58,7 @@ import (
 	hyperutil "github.com/openshift/hypershift/support/util"
 
 	operatorv1 "github.com/openshift/api/operator/v1"
+	configv1 "github.com/openshift/client-go/config/clientset/versioned/typed/config/v1"
 
 	"github.com/aws/aws-sdk-go-v2/service/ec2"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
@@ -226,6 +228,41 @@ func run(ctx context.Context, opts *StartOptions, log logr.Logger) error {
 
 	restConfig := ctrl.GetConfigOrDie()
 	restConfig.UserAgent = "hypershift-operator-manager"
+	kubeDiscoveryClient, err := discovery.NewDiscoveryClientForConfig(restConfig)
+	if err != nil {
+		return fmt.Errorf("unable to create discovery client: %w", err)
+	}
+
+	mgmtClusterCaps, err := capabilities.DetectManagementClusterCapabilities(kubeDiscoveryClient)
+	if err != nil {
+		return fmt.Errorf("unable to detect cluster capabilities: %w", err)
+	}
+
+	webhookOptions := webhook.Options{Port: 9443, CertDir: opts.CertDir}
+	if mgmtClusterCaps.Has(capabilities.CapabilityAPIServer) {
+		configClient, err := configv1.NewForConfig(restConfig)
+		if err != nil {
+			return fmt.Errorf("unable to create config client: %w", err)
+		}
+
+		apiServerConfig, err := configClient.APIServers().Get(ctx, "cluster", metav1.GetOptions{})
+		if err != nil {
+			return fmt.Errorf("unable to get the api server config: %w", err)
+		}
+
+		minTLSVersionSetter, err := config.SetMinTLSVersionUsingAPIServer(apiServerConfig)
+		if err != nil {
+			return fmt.Errorf("unable to configure webhook server tls version: %w", err)
+		}
+
+		cipherSuitesSetter, err := config.SetCipherSuitesUsingAPIServer(apiServerConfig)
+		if err != nil {
+			return fmt.Errorf("unable to configure webhook server cipher suites: %w", err)
+		}
+
+		webhookOptions.TLSOpts = []func(*tls.Config){minTLSVersionSetter, cipherSuitesSetter}
+	}
+
 	leaseDuration := time.Second * 60
 	renewDeadline := time.Second * 40
 	retryPeriod := time.Second * 15
@@ -234,10 +271,7 @@ func run(ctx context.Context, opts *StartOptions, log logr.Logger) error {
 		Metrics: metricsserver.Options{
 			BindAddress: opts.MetricsAddr,
 		},
-		WebhookServer: webhook.NewServer(webhook.Options{
-			Port:    9443,
-			CertDir: opts.CertDir,
-		}),
+		WebhookServer: webhook.NewServer(webhookOptions),
 		Client: crclient.Options{
 			Cache: &crclient.CacheOptions{
 				Unstructured: true,
@@ -254,16 +288,6 @@ func run(ctx context.Context, opts *StartOptions, log logr.Logger) error {
 	})
 	if err != nil {
 		return fmt.Errorf("unable to start manager: %w", err)
-	}
-
-	kubeDiscoveryClient, err := discovery.NewDiscoveryClientForConfig(mgr.GetConfig())
-	if err != nil {
-		return fmt.Errorf("unable to create discovery client: %w", err)
-	}
-
-	mgmtClusterCaps, err := capabilities.DetectManagementClusterCapabilities(kubeDiscoveryClient)
-	if err != nil {
-		return fmt.Errorf("unable to detect cluster capabilities: %w", err)
 	}
 
 	lookupOperatorImage := func(userSpecifiedImage string) (string, error) {
