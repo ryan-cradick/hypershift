@@ -62,6 +62,44 @@ aws_secret_access_key = test-secret-key
 			},
 		},
 		{
+			// Regression test: --aws-creds file must be used as both a shared config file
+			// and a shared credentials file. Previously only WithSharedConfigFiles was set,
+			// so credentials were never read from the provided file and fell back to
+			// AWS_* env vars or ~/.aws/credentials.
+			name:         "When given credentials file, it should read credentials from the file not from env vars",
+			agent:        "test-agent",
+			region:       "us-east-1",
+			expectNonNil: true,
+			setupFunc: func(t *testing.T) string {
+				// Ensure AWS env vars don't shadow the file credentials.
+				for _, env := range []string{"AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY", "AWS_SESSION_TOKEN", "AWS_SHARED_CREDENTIALS_FILE", "AWS_CONFIG_FILE"} {
+					t.Setenv(env, "")
+				}
+				tmpDir := t.TempDir()
+				credsFile := filepath.Join(tmpDir, "credentials")
+				content := `[default]
+aws_access_key_id = file-access-key
+aws_secret_access_key = file-secret-key
+`
+				if err := os.WriteFile(credsFile, []byte(content), 0600); err != nil {
+					t.Fatalf("Failed to create temp credentials file: %v", err)
+				}
+				return credsFile
+			},
+			validateConfig: func(t *testing.T, cfg *aws.Config) {
+				creds, err := cfg.Credentials.Retrieve(context.Background())
+				if err != nil {
+					t.Fatalf("Failed to retrieve credentials: %v", err)
+				}
+				if creds.AccessKeyID != "file-access-key" {
+					t.Errorf("Expected AccessKeyID %q from file, got %q — credentials were not loaded from the provided file", "file-access-key", creds.AccessKeyID)
+				}
+				if creds.SecretAccessKey != "file-secret-key" {
+					t.Errorf("Expected SecretAccessKey from file, got different value")
+				}
+			},
+		},
+		{
 			name:          "When region is not provided, it should create config without region",
 			agent:         "test-agent",
 			credKey:       "test-key",

@@ -100,6 +100,7 @@ func NewSession(ctx context.Context, agent, credentialsFile, credKey, credSecret
 	}
 	if credentialsFile != "" {
 		configOpts = append(configOpts, config.WithSharedConfigFiles([]string{credentialsFile}))
+		configOpts = append(configOpts, config.WithSharedCredentialsFiles([]string{credentialsFile}))
 	}
 	if credKey != "" && credSecretKey != "" {
 		credsProvider := credentials.NewStaticCredentialsProvider(credKey, credSecretKey, "")
