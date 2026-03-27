@@ -39,6 +39,11 @@ spec:
     count/nodepools.hypershift.openshift.io: "15"
 ---
 apiVersion: v1
+kind: Namespace
+metadata:
+  name: clusters
+---
+apiVersion: v1
 kind: ResourceQuota
 metadata:
   name: object-counts
@@ -134,9 +139,10 @@ spec:
           set -euo pipefail
 
           /usr/bin/hypershift install \
-          --oidc-storage-provider-s3-bucket-name=hypershift-ci-1-oidc \
+          --oidc-storage-provider-s3-bucket-name=hypershift-ci-2-oidc \
           --oidc-storage-provider-s3-region=us-east-1 \
           --oidc-storage-provider-s3-secret=oidc-s3-creds \
+          --platform-monitoring=All \
           --hypershift-image=$(cat /installer-data/image-ref)
 
           /usr/bin/sleep infinity
