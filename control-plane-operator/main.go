@@ -262,6 +262,7 @@ func NewStartCommand() *cobra.Command {
 			setupLog.Error(err, "unable to detect cluster capabilities")
 			os.Exit(1)
 		}
+		setupLog.Info("Native sidecar containers support", "enabled", mgmtClusterCaps.Has(capabilities.CapabilityNativeSidecarContainers))
 
 		hcpClient, err := hyperclient.NewForConfig(mgr.GetConfig())
 		if err != nil {

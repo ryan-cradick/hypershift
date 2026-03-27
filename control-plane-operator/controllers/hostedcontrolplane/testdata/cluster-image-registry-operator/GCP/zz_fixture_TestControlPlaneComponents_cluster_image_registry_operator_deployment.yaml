@@ -143,6 +143,7 @@ spec:
           name: apiserver-token
         - mountPath: /tmp
           name: tmp-dir
+      initContainers:
       - args:
         - --token-audience=openshift
         - --service-account-namespace=openshift-image-registry
@@ -159,21 +160,27 @@ spec:
           requests:
             cpu: 10m
             memory: 30Mi
+        restartPolicy: Always
         securityContext:
           allowPrivilegeEscalation: false
           capabilities:
             drop:
             - ALL
-          readOnlyRootFilesystem: true
           runAsNonRoot: true
+        startupProbe:
+          exec:
+            command:
+            - test
+            - -f
+            - /var/run/secrets/openshift/serviceaccount/token
+          failureThreshold: 30
+          periodSeconds: 1
         terminationMessagePolicy: FallbackToLogsOnError
         volumeMounts:
         - mountPath: /var/run/secrets/openshift/serviceaccount
           name: cloud-token
         - mountPath: /etc/kubernetes
           name: kubeconfig
-        - mountPath: /tmp
-          name: tmp-dir
       - args:
         - --token-audience=https://test-oidc-bucket.s3.us-east-1.amazonaws.com/test-cluster
         - --service-account-namespace=openshift-image-registry
@@ -190,21 +197,27 @@ spec:
           requests:
             cpu: 10m
             memory: 30Mi
+        restartPolicy: Always
         securityContext:
           allowPrivilegeEscalation: false
           capabilities:
             drop:
             - ALL
-          readOnlyRootFilesystem: true
           runAsNonRoot: true
+        startupProbe:
+          exec:
+            command:
+            - test
+            - -f
+            - /var/run/secrets/openshift/serviceaccount/token
+          failureThreshold: 30
+          periodSeconds: 1
         terminationMessagePolicy: FallbackToLogsOnError
         volumeMounts:
         - mountPath: /var/run/secrets/openshift/serviceaccount
           name: apiserver-token
         - mountPath: /etc/kubernetes
           name: kubeconfig
-        - mountPath: /tmp
-          name: tmp-dir
       priorityClassName: hypershift-control-plane
       tolerations:
       - effect: NoSchedule

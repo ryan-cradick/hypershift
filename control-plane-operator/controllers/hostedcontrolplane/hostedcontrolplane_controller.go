@@ -1213,19 +1213,20 @@ func (r *HostedControlPlaneReconciler) reconcileCPOV2(ctx context.Context, hcp *
 	}
 
 	cpContext := component.ControlPlaneContext{
-		Context:                   ctx,
-		Client:                    r.Client,
-		GVKAccessChecker:          r.GVKAccessChecker,
-		HCP:                       hcp,
-		ApplyProvider:             upsert.NewApplyProvider(r.EnableCIDebugOutput),
-		InfraStatus:               infraStatus,
-		ReleaseImageProvider:      releaseImageProvider,
-		UserReleaseImageProvider:  userReleaseImageProvider,
-		SetDefaultSecurityContext: r.SetDefaultSecurityContext,
-		DefaultSecurityContextUID: r.DefaultSecurityContextUID,
-		MetricsSet:                r.MetricsSet,
-		EnableCIDebugOutput:       r.EnableCIDebugOutput,
-		ImageMetadataProvider:     r.ImageMetadataProvider,
+		Context:                        ctx,
+		Client:                         r.Client,
+		GVKAccessChecker:               r.GVKAccessChecker,
+		HCP:                            hcp,
+		ApplyProvider:                  upsert.NewApplyProvider(r.EnableCIDebugOutput),
+		InfraStatus:                    infraStatus,
+		ReleaseImageProvider:           releaseImageProvider,
+		UserReleaseImageProvider:       userReleaseImageProvider,
+		SetDefaultSecurityContext:      r.SetDefaultSecurityContext,
+		DefaultSecurityContextUID:      r.DefaultSecurityContextUID,
+		MetricsSet:                     r.MetricsSet,
+		EnableCIDebugOutput:            r.EnableCIDebugOutput,
+		ImageMetadataProvider:          r.ImageMetadataProvider,
+		NativeSidecarContainersEnabled: r.ManagementClusterCapabilities.Has(capabilities.CapabilityNativeSidecarContainers),
 	}
 
 	var errs []error
