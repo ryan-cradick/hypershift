@@ -207,20 +207,16 @@ func TestKarpenter(t *testing.T) {
 
 			t.Logf("Starting Karpenter control plane upgrade. FromImage: %s, toImage: %s", globalOpts.PreviousReleaseImage, globalOpts.LatestReleaseImage)
 
-			// Lookup os and kubelet versions of the latestReleaseImage
 			releaseProvider := &releaseinfo.RegistryClientProvider{}
 			pullSecret, err := os.ReadFile(clusterOpts.PullSecretFile)
 			g.Expect(err).NotTo(HaveOccurred())
 
 			latestReleaseImage, err := releaseProvider.Lookup(ctx, globalOpts.LatestReleaseImage, pullSecret)
 			g.Expect(err).NotTo(HaveOccurred())
-			releaseImageComponentVersions, err := latestReleaseImage.ComponentVersions()
-			g.Expect(err).NotTo(HaveOccurred())
 
-			expectedRHCOSVersion := releaseImageComponentVersions["machine-os"]
-			g.Expect(expectedRHCOSVersion).NotTo(BeEmpty())
-			expectedKubeletVersion := releaseImageComponentVersions["kubernetes"]
-			g.Expect(expectedKubeletVersion).NotTo(BeEmpty())
+			expectedRHCOSVersions := machineOSVersions(latestReleaseImage)
+			g.Expect(expectedRHCOSVersions).NotTo(BeEmpty())
+			t.Logf("machine-os version(s) in latest release: %v", expectedRHCOSVersions)
 
 			replicas := 1
 			workLoads.Object["spec"].(map[string]interface{})["replicas"] = replicas
@@ -237,6 +233,9 @@ func TestKarpenter(t *testing.T) {
 			nodes := e2eutil.WaitForReadyNodesByLabels(t, ctx, guestClient, hostedCluster.Spec.Platform.Type, int32(replicas), nodeLabels)
 			nodeClaims := waitForReadyNodeClaims(t, ctx, guestClient, len(nodes))
 			waitForReadyKarpenterPods(t, ctx, guestClient, nodes, replicas)
+
+			preUpgradeOSImage := nodes[0].Status.NodeInfo.OSImage
+			t.Logf("Pre-upgrade node: %s, OS image: %s", nodes[0].Name, preUpgradeOSImage)
 
 			// Update hosted control plane to induce Drift
 			t.Logf("Updating cluster image. Image: %s", globalOpts.LatestReleaseImage)
@@ -282,11 +281,13 @@ func TestKarpenter(t *testing.T) {
 					e2eutil.Predicate[*corev1.Node](func(node *corev1.Node) (done bool, reasons string, err error) {
 						fullOSImageString := node.Status.NodeInfo.OSImage
 
-						if !strings.Contains(fullOSImageString, expectedRHCOSVersion) {
-							return false, fmt.Sprintf("expected node OS image name %q string to contain expected OS version string %q", fullOSImageString, expectedRHCOSVersion), nil
+						for _, v := range expectedRHCOSVersions {
+							if strings.Contains(fullOSImageString, v) {
+								return true, fmt.Sprintf("node OS image %q contains expected version %q", fullOSImageString, v), nil
+							}
 						}
 
-						return true, fmt.Sprintf("expected OS version string %q, and node.Status.NodeInfo.OSImage is %q", expectedRHCOSVersion, fullOSImageString), nil
+						return false, fmt.Sprintf("expected node OS image %q to contain one of %v", fullOSImageString, expectedRHCOSVersions), nil
 					}),
 				),
 			)
@@ -1551,4 +1552,24 @@ func getNodeNames(nodes []corev1.Node) []string {
 		nodeNames[i] = node.Name
 	}
 	return nodeNames
+}
+
+// machineOSVersions extracts all machine-os version strings from a release image's ImageStream.
+// The release payload may ship multiple RHCOS variants (e.g. rhel-coreos 9.8 and rhel-coreos-10 10.2),
+// so ComponentVersions() can't be used — it either errors or picks only one.
+func machineOSVersions(releaseImage *releaseinfo.ReleaseImage) []string {
+	var versions []string
+	for _, tag := range releaseImage.ImageStream.Spec.Tags {
+		buildVersions, ok := tag.Annotations["io.openshift.build.versions"]
+		if !ok {
+			continue
+		}
+		for _, pair := range strings.Split(buildVersions, ",") {
+			parts := strings.SplitN(strings.TrimSpace(pair), "=", 2)
+			if len(parts) == 2 && parts[0] == "machine-os" {
+				versions = append(versions, parts[1])
+			}
+		}
+	}
+	return versions
 }
