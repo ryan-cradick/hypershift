@@ -794,6 +794,10 @@ func setupCRDs(ctx context.Context, client crclient.Client, opts Options, operat
 	crds = append(
 		crds, assets.CustomResourceDefinitions(
 			func(path string, crd *apiextensionsv1.CustomResourceDefinition) bool {
+				// Skip non-CRD files (featuregate manifests, envtest suites).
+				if strings.Contains(path, "payload-manifests") || strings.Contains(path, "tests/") {
+					return false
+				}
 				if strings.Contains(path, "etcd") && opts.ExcludeEtcdManifests {
 					return false
 				}
