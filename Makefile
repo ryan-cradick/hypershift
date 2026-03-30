@@ -332,7 +332,7 @@ setup-envtest: $(SETUP_ENVTEST) ## Setup envtest binaries (etcd, kube-apiserver)
 # Determine the number of CPU cores
 NUM_CORES := $(shell getconf _NPROCESSORS_ONLN || echo 1)
 
-test: generate test-envtest-api-all
+test: generate
 	@echo "Running tests with $(NUM_CORES) parallel jobs..."
 	$(GO) test -race -parallel=$(NUM_CORES) -count=1 -timeout=30m ./... -coverprofile cover.out
 
