@@ -45,7 +45,11 @@ gcloud container clusters get-credentials <cluster-name> \
 
 ## Create PSC Subnet
 
-Private Service Connect (PSC) provides private connectivity between the hosted cluster worker nodes and the control plane API server. Create a PSC subnet in the same VPC as the GKE cluster:
+Private Service Connect (PSC) provides private connectivity between the hosted cluster worker nodes and the control plane API server. Each hosted cluster requires its own dedicated PSC subnet, so you will need as many PSC subnets as the maximum number of hosted clusters you plan to run on the management cluster.
+
+The HyperShift operator automatically discovers available PSC subnets in the region and assigns an unused one to each new hosted cluster — you do not need to specify which subnet to use. Just make sure to pre-create enough subnets in the same VPC and region as the GKE cluster.
+
+Create PSC subnets in the same VPC as the GKE cluster:
 
 ```bash
 # Get the VPC name used by the GKE cluster
@@ -54,8 +58,9 @@ VPC_NAME=$(gcloud container clusters describe <cluster-name> \
   --region=<region> \
   --format='value(networkConfig.network)' | xargs basename)
 
-# Create PSC subnet
-gcloud compute networks subnets create <infra-id>-psc \
+# Create PSC subnets (one per hosted cluster you plan to support)
+# Use unique names and non-overlapping CIDR ranges for each subnet
+gcloud compute networks subnets create <psc-subnet-001> \
   --project=<control-plane-project-id> \
   --region=<region> \
   --network="${VPC_NAME}" \
@@ -63,8 +68,6 @@ gcloud compute networks subnets create <infra-id>-psc \
   --purpose=PRIVATE_SERVICE_CONNECT \
   --quiet
 ```
-
-Note the PSC subnet name — you will need it when creating the hosted cluster.
 
 ## DNS Zone Configuration
 
