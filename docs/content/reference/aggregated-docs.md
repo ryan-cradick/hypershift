@@ -11964,32 +11964,7 @@ This guide outlines the steps for performing disaster recovery on a Hosted Clust
 
 ## Pre-requisites
 
-Ensure the following prerequisites are met on the Management cluster (connected or disconnected):
-
-- A valid StorageClass.
-- Cluster-admin access.
-- Access to the openshift-adp version 1.5+ subscription via a CatalogSource.
-- Access to online storage compatible with OpenShift ADP cloud storage providers (e.g., S3, Azure, GCP, MinIO).
-- HostedControlPlane pods are accessible and functioning correctly.
-- The HostedCluster should be PublicAndPrivate or Private.
-- The Public only clusters should have at least a hostname.
-
-!!! warning "⚠️ HostedCluster Configuration"
-
-    The HostedCluster must be configured as `PublicAndPrivate`, `Private`, or `Public` with a fixed hostname for the kube-api-server. Public clusters without a hostname will cause restore failures. See HostedCluster Configuration Requirements for details.
-
-!!! Note "Note for Bare Metal Providers"
-
-    Since the InfraEnv has a different lifecycle than the HostedCluster, it should reside in a separate namespace from the HostedControlPlane and must not be deleted during backup or restore procedures.
-
-
-!!! important
-
-    Before proceeding further, two crucial points must be noted:
-
-    1. Restoration will occur in a green field environment, signifying that after the HostedCluster has been backed up, it must be destroyed to initiate the restoration process.
-
-    2. Node reprovisioning will take place, necessitating the backup of workloads in the Data Plane before deleting the HostedCluster..
+Please review the Disaster Recovery Prerequisites page before proceeding. It covers all general requirements, HostedCluster service publishing strategy configuration (critical for cross-management-cluster restore), and platform-specific considerations.
 
 ## Deploying OpenShift ADP
 
@@ -12850,66 +12825,7 @@ velero delete backup hc-clusters-hosted-backup
 
 ## HostedCluster Configuration Requirements
 
-The HostedCluster must be configured as `PublicAndPrivate`, `Private`, or `Public` with a fixed hostname for backup/restore operations to work correctly. If the HostedCluster is configured as `Public` without a hostname in the ServicePublishingStrategy for the kube-api-server, the restore operation will fail with the following consequences:
-
-- **Nodes remain in NotReady state**
-- **NodePool scaling fails to generate new nodes**
-
-### Root Cause
-
-The issue occurs because:
-
-- Nodes store the ELB (Elastic Load Balancer) address in their kubelet configuration, which is ephemeral and changes when the cluster is deleted and restored
-- The SAN (Subject Alternative Name) in the certificate fails because the certificate name no longer matches the new ELB
-- Original nodes cannot connect to the ControlPlane because they point to the old ELB, and even if they pointed to the new one, the certificate would be incorrect
-
-### Solution
-
-Ensure your HostedCluster is configured with either:
-
-- `PublicAndPrivate` service publishing strategy, OR
-- `Private` service publishing strategy, OR
-- `Public` service publishing strategy with a **hostname** specified for the kube-api-server
-
-### AWS Self-Managed Platform Requirements
-
-!!! important "AWS Self-Managed Platforms"
-
-    When using AWS platform with self-managed infrastructure, the `Public` endpoint access option with a **Route** service publishing strategy and a **fixed hostname** is required. This is a specific case of the `Public` with hostname option described above.
-
-    This ensures that:
-    - Node workloads can be properly migrated to new nodes in the restored NodePools
-    - Service continuity is maintained during the disaster recovery process
-    - DNS resolution remains consistent for applications
-
-### Example Configuration
-
-**Public endpoint access with Route hostname (required for AWS self-managed platforms)**
-```yaml
-spec:
-  platform:
-    aws:
-      endpointAccess: Public
-  services:
-  - service: APIServer
-    servicePublishingStrategy:
-      type: Route
-      route:
-        hostname: api.example.com
-```
-
-### Fixing OIDC After Restore
-
-After completing the OADP restore, if the control-plane-operator reports `WebIdentityErr` errors or NodePool nodes remain not-ready due to a missing default security group, run the OIDC disaster recovery command:
-
-```bash
-hypershift fix dr-oidc-iam \
-  --hc-name <cluster-name> \
-  --hc-namespace <namespace> \
-  --aws-creds ~/.aws/credentials
-```
-
-This re-uploads the OIDC discovery documents using the existing cluster signing key and recreates the IAM OIDC provider if needed. See the AWS Disaster Recovery documentation for full details.
+For detailed information about HostedCluster service publishing strategy requirements, including example configurations and platform-specific considerations, see the Disaster Recovery Prerequisites page.
 
 
 ---
@@ -12926,25 +12842,7 @@ In this section, we will outline the procedures for performing disaster recovery
 
 ## Pre-requisites
 
-The first consideration is to ensure we meet the prerequisites. On the Management cluster, whether it is Connected or Disconnected, we require:
-
-- A valid StorageClass.
-- Cluster-admin access.
-- Access to the openshift-adp subscription through a CatalogSource.
-- Access to online storage compatible with the openshift-adp cloud storage providers (S3, Azure, GCP, Minio, etc.).
-- The HostedControlPlane pods should be accessible and functioning correctly.
-- **(Bare Metal Provider Only)** As the InfraEnv has a different lifecycle than the HostedCluster, it should reside in a namespace separate from that of the HostedControlPlane and should not be deleted during the backup/restore procedures.
-
-!!! warning "⚠️ HostedCluster Configuration"
-
-    The HostedCluster must be configured as `PublicAndPrivate`, `Private`, or `Public` with a fixed hostname for the kube-api-server. Public clusters without a hostname will cause restore failures. See HostedCluster Configuration Requirements for details.
-
-
-!!! important
-
-    Before proceeding further, two crucial points must be noted:
-    1. Restoration will occur in a green field environment, signifying that after the HostedCluster has been backed up, it must be destroyed to initiate the restoration process.
-    2. Node reprovisioning will take place, necessitating the backup of workloads in the Data Plane before deleting the HostedCluster..
+Please review the Disaster Recovery Prerequisites page before proceeding. It covers all general requirements, HostedCluster service publishing strategy configuration (critical for cross-management-cluster restore), and platform-specific considerations.
 
 ## Openshift-adp deployment
 
@@ -13800,68 +13698,9 @@ velero delete backup hc-clusters-hosted-backup
 
     If you modify the folder structure of the remote storage where your backups are hosted, you may encounter issues with `backuprepositories.velero.io`. In such cases, you will need to recreate all the associated objects, including DPAs, backups, restores, etc.
 
-## HostedCluster Configuration Requirements for AWS provider
+## HostedCluster Configuration Requirements
 
-The HostedCluster must be configured as `PublicAndPrivate`, `Private`, or `Public` with a fixed hostname for backup/restore operations to work correctly. If the HostedCluster is configured as `Public` without a hostname in the ServicePublishingStrategy for the kube-api-server, the restore operation will fail with the following consequences:
-
-- **Nodes remain in NotReady state**
-- **NodePool scaling fails to generate new nodes**
-
-### Root Cause
-
-The issue occurs because:
-
-- Nodes store the ELB (Elastic Load Balancer) address in their kubelet configuration, which is ephemeral and changes when the cluster is deleted and restored
-- The SAN (Subject Alternative Name) in the certificate fails because the certificate name no longer matches the new ELB
-- Original nodes cannot connect to the ControlPlane because they point to the old ELB, and even if they pointed to the new one, the certificate would be incorrect
-
-### Solution
-
-Ensure your HostedCluster is configured with either:
-
-- `PublicAndPrivate` service publishing strategy, OR
-- `Private` service publishing strategy, OR
-- `Public` service publishing strategy with a **hostname** specified for the kube-api-server
-
-### AWS Self-Managed Platform Requirements
-
-!!! important "AWS Self-Managed Platforms"
-
-    When using AWS platform with self-managed infrastructure, the `Public` endpoint access option with a **Route** service publishing strategy and a **fixed hostname** is required. This is a specific case of the `Public` with hostname option described above.
-
-    This ensures that:
-    - Node workloads can be properly migrated to new nodes in the restored NodePools
-    - Service continuity is maintained during the disaster recovery process
-    - DNS resolution remains consistent for applications
-
-### Example Configuration
-
-**Public endpoint access with Route hostname (required for AWS self-managed platforms)**
-```yaml
-spec:
-  platform:
-    aws:
-      endpointAccess: Public
-  services:
-  - service: APIServer
-    servicePublishingStrategy:
-      type: Route
-      route:
-        hostname: api.example.com
-```
-
-### Fixing OIDC After Restore
-
-After completing the OADP restore, if the control-plane-operator reports `WebIdentityErr` errors or NodePool nodes remain not-ready due to a missing default security group, run the OIDC disaster recovery command:
-
-```bash
-hypershift fix dr-oidc-iam \
-  --hc-name <cluster-name> \
-  --hc-namespace <namespace> \
-  --aws-creds ~/.aws/credentials
-```
-
-This re-uploads the OIDC discovery documents using the existing cluster signing key and recreates the IAM OIDC provider if needed. See the AWS Disaster Recovery documentation for full details.
+For detailed information about HostedCluster service publishing strategy requirements, including example configurations and platform-specific considerations, see the Disaster Recovery Prerequisites page.
 
 
 
@@ -15366,6 +15205,9 @@ This section of the Hypershift documentation contains pages that show how to per
 
 ## Available Guides
 
+### Prerequisites
+Required prerequisites for all disaster recovery operations, including HostedCluster service publishing strategy requirements for cross-management-cluster restore.
+
 ### DR CLI Domain
 Use the HyperShift CLI disaster recovery commands with platform-aware backup creation and OADP integration.
 
@@ -15377,6 +15219,142 @@ Updated procedures and enhanced features for OADP version 1.5.
 
 ### ETCD Recovery
 ETCD disaster recovery procedures for control plane data backup and restoration.
+
+
+---
+
+## Source: docs/content/how-to/disaster-recovery/prerequisites.md
+
+# Disaster Recovery Prerequisites
+
+This page consolidates the prerequisites that must be met before performing any backup/restore operation on a HostedCluster. All disaster recovery guides in this section reference these prerequisites.
+
+## General Prerequisites
+
+Ensure the following requirements are met on the Management cluster (connected or disconnected):
+
+- A valid StorageClass configured in the Management cluster.
+- Cluster-admin access to the Management cluster.
+- Access to online storage compatible with OpenShift ADP cloud storage providers (e.g., S3, Azure, GCP, MinIO).
+- HostedControlPlane pods are accessible and functioning correctly.
+- Access to the `openshift-adp` subscription through a CatalogSource (version depends on the DR procedure you follow).
+
+!!! important
+
+    Before proceeding with any backup/restore procedure, keep in mind:
+
+    1. Restoration will occur in a green field environment. After the HostedCluster has been backed up, it must be destroyed to initiate the restoration process.
+    2. Node reprovisioning will take place. Back up workloads in the Data Plane before deleting the HostedCluster.
+
+## HostedCluster Service Publishing Strategy Requirements
+
+!!! warning "Critical Requirement for Backup/Restore to a Different Management Cluster"
+
+    When restoring a HostedCluster to a **different** Management cluster, all services in the HostedCluster **must** be configured with a fixed hostname in their `servicePublishingStrategy`. This applies to **all platforms** (AWS, Agent, KubeVirt, OpenStack, etc.).
+
+    The most critical service is the **APIServer**, which **must** have a fixed hostname. Without it, the restore will fail and nodes will be unable to rejoin the cluster.
+
+### Why Is This Required?
+
+When a HostedCluster is restored on a different Management cluster:
+
+- The infrastructure endpoints (e.g., Load Balancer addresses, Route URLs) change because they are ephemeral and tied to the original Management cluster.
+- Nodes store the KAS (Kube API Server) address in their kubelet configuration. If that address was an ephemeral Load Balancer or Route URL, nodes will point to the old address after restore.
+- TLS certificates (SAN - Subject Alternative Name) will not match the new ephemeral endpoints, causing certificate validation failures.
+- A fixed hostname configured via DNS allows you to update the DNS record to point to the new Management cluster's endpoint, making the migration transparent for existing nodes.
+
+### Minimum Required Configuration
+
+At a minimum, the **APIServer** service must have a fixed hostname:
+
+```yaml
+spec:
+  services:
+  - service: APIServer
+    servicePublishingStrategy:
+      type: LoadBalancer
+      loadBalancer:
+        hostname: api-int.example.com
+```
+
+### Recommended Production Configuration
+
+For production environments, it is strongly recommended to configure **all** services with fixed hostnames:
+
+```yaml
+spec:
+  services:
+  - service: APIServer
+    servicePublishingStrategy:
+      type: LoadBalancer
+      loadBalancer:
+        hostname: api-int.example.com
+  - service: OAuthServer
+    servicePublishingStrategy:
+      type: Route
+      route:
+        hostname: oauth.example.com
+  - service: OIDC
+    servicePublishingStrategy:
+      type: Route
+      route:
+        hostname: oidc.example.com
+  - service: Konnectivity
+    servicePublishingStrategy:
+      type: Route
+      route:
+        hostname: konnectivity.example.com
+  - service: Ignition
+    servicePublishingStrategy:
+      type: Route
+      route:
+        hostname: ignition.example.com
+```
+
+This ensures full service continuity and DNS consistency during the restore process on a different Management cluster.
+
+### AWS Self-Managed Platform Specifics
+
+When using AWS platform with self-managed infrastructure, the APIServer can also use a **Route** service publishing strategy with a fixed hostname:
+
+```yaml
+spec:
+  platform:
+    aws:
+      endpointAccess: Public
+  services:
+  - service: APIServer
+    servicePublishingStrategy:
+      type: Route
+      route:
+        hostname: api.example.com
+```
+
+## Platform-Specific Prerequisites
+
+### Bare Metal / Agent Provider
+
+!!! note "InfraEnv Lifecycle"
+
+    Since the InfraEnv has a different lifecycle than the HostedCluster, it should reside in a namespace separate from that of the HostedControlPlane and must not be deleted during backup or restore procedures.
+
+### AWS Provider
+
+- Ensure OIDC provider configuration is accessible for post-restore fixup (see Fixing OIDC After Restore).
+- If using S3 for backup storage, ensure IAM roles and policies are configured following the official documentation.
+
+## Fixing OIDC After Restore
+
+After completing an OADP restore on AWS, if the control-plane-operator reports `WebIdentityErr` errors or NodePool nodes remain not-ready due to a missing default security group, run the OIDC disaster recovery command:
+
+```bash
+hypershift fix dr-oidc-iam \
+  --hc-name <cluster-name> \
+  --hc-namespace <namespace> \
+  --aws-creds ~/.aws/credentials
+```
+
+This re-uploads the OIDC discovery documents using the existing cluster signing key and recreates the IAM OIDC provider if needed. See the AWS Disaster Recovery documentation for full details.
 
 
 ---
