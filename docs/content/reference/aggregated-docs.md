@@ -3,8 +3,6 @@
 This file contains all HyperShift documentation aggregated into a single file
 for use with AI tools like NotebookLM.
 
-Total documents: 264
-
 ---
 
 ## Source: docs/content/contribute/branch-process.md
