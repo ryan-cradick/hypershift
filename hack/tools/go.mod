@@ -7,6 +7,7 @@ require (
 	github.com/gobwas/glob v0.2.3
 	github.com/golangci/golangci-lint/v2 v2.11.4
 	github.com/google/cel-go v0.26.1
+	github.com/mikefarah/yq/v4 v4.44.5
 	github.com/openshift/api/tools v0.0.0-20250915151906-94481d71bb6f
 	go.uber.org/mock v0.6.0
 	gotest.tools/gotestsum v1.13.0
@@ -188,7 +189,6 @@ require (
 	github.com/mattn/go-isatty v0.0.20 // indirect
 	github.com/mattn/go-runewidth v0.0.16 // indirect
 	github.com/mgechev/revive v1.15.0 // indirect
-	github.com/mikefarah/yq/v4 v4.44.5 // indirect
 	github.com/mitchellh/go-homedir v1.1.0 // indirect
 	github.com/modern-go/concurrent v0.0.0-20180306012644-bacd9c7ef1dd // indirect
 	github.com/modern-go/reflect2 v1.0.3-0.20250322232337-35a7c28c31ee // indirect
