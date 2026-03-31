@@ -225,14 +225,15 @@ func GenerateCRDInstallTest(featureSet string) {
 	It(fmt.Sprintf("should install all CRDs for feature set %q", featureSet), func() {
 		Expect(k8sClient).ToNot(BeNil(), "Kubernetes client is not initialised")
 
-		crdsToInstall := make([]*apiextensionsv1.CustomResourceDefinition, len(allCRDs))
-		for i, c := range allCRDs {
-			crdsToInstall[i] = c.DeepCopy()
-		}
-
 		// Retry — a previous suite may still be deleting CRDs.
+		// Deep copy inside the loop so that resourceVersion set by a failed
+		// attempt does not poison the next retry.
 		var crds []*apiextensionsv1.CustomResourceDefinition
 		Eventually(func() error {
+			crdsToInstall := make([]*apiextensionsv1.CustomResourceDefinition, len(allCRDs))
+			for i, c := range allCRDs {
+				crdsToInstall[i] = c.DeepCopy()
+			}
 			var err error
 			crds, err = envtest.InstallCRDs(cfg, envtest.CRDInstallOptions{
 				CRDs: crdsToInstall,
