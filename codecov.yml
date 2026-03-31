@@ -3,6 +3,11 @@ codecov:
   notify:
     wait_for_ci: false
 
+ignore:
+  - "test/**"
+  - "hack/**"
+  - "vendor/**"
+
 comment:
   layout: "condensed_header, diff, files, flags, components"
   behavior: default
