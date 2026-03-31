@@ -39,6 +39,7 @@ type CreateInfraOutput struct {
 	BootImageID         string                                  `json:"bootImageID"`
 	InfraID             string                                  `json:"infraID"`
 	SecurityGroupID     string                                  `json:"securityGroupID"`
+	NATSubnetID         string                                  `json:"natSubnetID,omitempty"`
 	ControlPlaneMIs     *hyperv1.AzureResourceManagedIdentities `json:"controlPlaneMIs"`
 	DataPlaneIdentities hyperv1.DataPlaneManagedIdentities      `json:"dataPlaneIdentities"`
 	WorkloadIdentities  *hyperv1.AzureWorkloadIdentities        `json:"workloadIdentities"`
