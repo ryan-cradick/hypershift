@@ -72,6 +72,10 @@ var backupRestorePlatforms = map[hyperv1.PlatformType]backupRestorePlatformConfi
 		excludeWorkloads: []string{"router", "karpenter", "karpenter-operator", "cloud-network-config-controller"},
 		postRestoreHook:  nil,
 	},
+	hyperv1.KubevirtPlatform: {
+		excludeWorkloads: []string{"router", "karpenter", "karpenter-operator", "cloud-network-config-controller"},
+		postRestoreHook:  nil,
+	},
 }
 
 var _ = Describe("BackupRestore", Label("backup-restore"), Ordered, Serial, func() {
