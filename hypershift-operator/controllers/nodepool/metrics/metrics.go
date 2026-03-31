@@ -3,6 +3,8 @@ package metrics
 import (
 	"context"
 	"errors"
+	"strconv"
+	"sync"
 	"time"
 
 	hyperv1 "github.com/openshift/hypershift/api/hypershift/v1beta1"
@@ -12,8 +14,11 @@ import (
 
 	"github.com/aws/aws-sdk-go-v2/service/ec2"
 	ec2types "github.com/aws/aws-sdk-go-v2/service/ec2/types"
+	"github.com/aws/smithy-go"
 
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/utils/clock"
 
 	capiv1 "sigs.k8s.io/cluster-api/api/v1beta1"
@@ -131,22 +136,28 @@ var (
 
 type nodePoolsMetricsCollector struct {
 	client.Client
-	ec2Client awsapi.EC2API
+	ec2Client ec2.DescribeInstanceTypesAPIClient
 	clock     clock.Clock
+	mu        sync.Mutex
 
 	ec2InstanceTypeToVCpusCount map[string]int32
+	// awsInstanceTypeUnknown caches instance types that are not recognized
+	// by the EC2 API, so subsequent calls skip the API
+	// and go directly to the ConfigMap fallback.
+	awsInstanceTypeUnknown sets.Set[string]
 
 	transitionDurationMetric *prometheus.HistogramVec
 
 	lastCollectTime time.Time
 }
 
-func createNodePoolsMetricsCollector(client client.Client, ec2Client awsapi.EC2API, clock clock.Clock) prometheus.Collector {
+func createNodePoolsMetricsCollector(client client.Client, ec2Client ec2.DescribeInstanceTypesAPIClient, clock clock.Clock) prometheus.Collector {
 	return &nodePoolsMetricsCollector{
 		Client:                      client,
 		ec2Client:                   ec2Client,
 		clock:                       clock,
 		ec2InstanceTypeToVCpusCount: make(map[string]int32),
+		awsInstanceTypeUnknown:      sets.New[string](),
 		transitionDurationMetric: prometheus.NewHistogramVec(prometheus.HistogramOpts{
 			Name:    TransitionDurationMetricName,
 			Help:    transitionDurationMetricHelp,
@@ -169,13 +180,13 @@ func (c *nodePoolsMetricsCollector) Describe(ch chan<- *prometheus.Desc) {
 }
 
 type hclusterData struct {
-	id                    string
-	namespace             string
-	name                  string
-	platform              hyperv1.PlatformType
-	nodePoolsCount        int
-	vCpusCount            int32
-	vCpusCountErrorReason string
+	id             string
+	namespace      string
+	name           string
+	platform       hyperv1.PlatformType
+	nodePoolsCount int
+	vCpusCount     int32
+	vCpusCountErr  error
 }
 
 func createFailureConditionToNodePoolsCountMap(knownConditionToExpectedStatus map[string]corev1.ConditionStatus) *map[string]int {
@@ -194,83 +205,139 @@ func createFailureConditionToNodePoolsCountMap(knownConditionToExpectedStatus ma
 	return &res
 }
 
-type vCpusDetail struct {
-	vCpusCount            int32
-	vCpusCountErrorReason string // set only if vCpusCount == -1
-}
+// Sentinel errors for vCPU lookup failures.
+var (
+	errNoAWSEC2Client                      = errors.New("no AWS EC2 client")
+	errUnexpectedAWSOutput                 = errors.New("unexpected AWS output")
+	errFailedToCallAWS                     = errors.New("failed to call AWS")
+	errUnknownInstanceType                 = errors.New("unknown instance type")
+	errUnableToParseConfigMapData          = errors.New("unable to parse ConfigMap data")
+	errRosaCPUsInstanceTypesConfigNotFound = errors.New("ROSA CPUs instance types ConfigMap not found")
+	errUnsupportedPlatform                 = errors.New("unsupported platform")
+	errMissingAWSPlatformSpec              = errors.New("spec.platform.aws missing in node pool")
+)
 
-func (c *nodePoolsMetricsCollector) retrieveVCpusDetailsPerNode(ctx context.Context, nodePool *hyperv1.NodePool, ec2InstanceTypeToResolutionErrorReason *map[string]string) vCpusDetail {
-	if nodePool.Spec.Platform.Type != hyperv1.AWSPlatform {
-		ctrllog.Log.Info("cannot retrieve the number of vCPUs for " + nodePool.Name + " node pool as its platform is not supported (supported platforms: AWS)")
+const (
+	rosaCPUsInstanceTypeConfigMapName     = "rosa-cpus-instance-types-config"
+	rosaCPUInstanceTypeConfigMapNamespace = "hypershift"
+)
 
-		return vCpusDetail{vCpusCount: -1, vCpusCountErrorReason: "unsupported platform"}
+func extractCPUFromInstanceTypeNameViaEC2API(ctx context.Context, instanceTypeName string, ec2Client ec2.DescribeInstanceTypesAPIClient) (int32, error) {
+	if ec2Client == nil {
+		ctrllog.Log.Error(errNoAWSEC2Client,
+			"cannot retrieve the number of vCPUs for instance type "+instanceTypeName+" as the EC2 client used to query AWS API is not properly initialized")
+		return -1, errNoAWSEC2Client
 	}
 
-	if c.ec2Client == nil {
-		errorReason := "no AWS EC2 client"
-		ctrllog.Log.Error(errors.New(errorReason), "cannot retrieve the number of vCPUs for "+nodePool.Name+" node pool as the client used to query AWS API is not properly initialized")
+	ec2InstanceTypes, err := ec2Client.DescribeInstanceTypes(ctx, &ec2.DescribeInstanceTypesInput{
+		InstanceTypes: []ec2types.InstanceType{ec2types.InstanceType(instanceTypeName)},
+	})
+	if err != nil {
+		var apiErr smithy.APIError
+		if errors.As(err, &apiErr) && apiErr.ErrorCode() == "InvalidInstanceType" {
+			ctrllog.Log.Error(err, "unknown instance type "+instanceTypeName+" in EC2 API")
+			return -1, errUnknownInstanceType
+		}
+		ctrllog.Log.Error(err, "failed to call AWS EC2 API to resolve the number of vCPUs for instance type "+instanceTypeName)
+		return -1, errFailedToCallAWS
+	}
+	if ec2InstanceTypes == nil ||
+		len(ec2InstanceTypes.InstanceTypes) == 0 ||
+		ec2InstanceTypes.InstanceTypes[0].VCpuInfo == nil ||
+		ec2InstanceTypes.InstanceTypes[0].VCpuInfo.DefaultVCpus == nil {
+		ctrllog.Log.Error(errUnexpectedAWSOutput,
+			"unexpected output for EC2 verb 'describe-instance-types' for instance type "+instanceTypeName)
+		return -1, errUnexpectedAWSOutput
+	}
 
-		return vCpusDetail{vCpusCount: -1, vCpusCountErrorReason: errorReason}
+	return *ec2InstanceTypes.InstanceTypes[0].VCpuInfo.DefaultVCpus, nil
+}
+
+// extractCPUFromInstanceTypeNameViaConfigMap extracts the vCPU count for the given instance type
+// from a ConfigMap. The ConfigMap is fetched from the cluster using the provided client.Reader.
+// The ConfigMap data is expected to map instance type names to vCPU counts, e.g.:
+//
+//	data:
+//	  m5.xlarge: "4"
+//	  m5.2xlarge: "8"
+//	  c5.4xlarge: "16"
+func extractCPUFromInstanceTypeNameViaConfigMap(ctx context.Context, instanceTypeName string, reader client.Reader) (int32, error) {
+	configMap := &corev1.ConfigMap{}
+	if err := reader.Get(ctx, types.NamespacedName{Name: rosaCPUsInstanceTypeConfigMapName, Namespace: rosaCPUInstanceTypeConfigMapNamespace},
+		configMap); err != nil {
+		ctrllog.Log.Error(err, "unable to retrieve ConfigMap "+rosaCPUsInstanceTypeConfigMapName+" in namespace "+rosaCPUInstanceTypeConfigMapNamespace)
+		return -1, errRosaCPUsInstanceTypesConfigNotFound
+	}
+	if configMap.Data == nil {
+		return -1, errRosaCPUsInstanceTypesConfigNotFound
+	}
+	value, ok := configMap.Data[instanceTypeName]
+	if !ok {
+		return -1, errUnknownInstanceType
+	}
+	vCpusCount, err := strconv.ParseInt(value, 10, 32)
+	if err != nil {
+		ctrllog.Log.Error(err, "couldn't parse VCPU data from ConfigMap for instance "+instanceTypeName)
+		return -1, errUnableToParseConfigMapData
+	}
+	return int32(vCpusCount), nil
+}
+
+func (c *nodePoolsMetricsCollector) retrieveVCpusDetailsPerNode(ctx context.Context, nodePool *hyperv1.NodePool) (int32, error) {
+	if nodePool.Spec.Platform.Type != hyperv1.AWSPlatform {
+		ctrllog.Log.Info("cannot retrieve the number of vCPUs for " + nodePool.Name + " node pool as its platform is not supported (supported platforms: AWS)")
+		return -1, errUnsupportedPlatform
 	}
 
 	awsPlatform := nodePool.Spec.Platform.AWS
-
 	if awsPlatform == nil {
-		errorReason := "spec.platform.aws missing in node pool"
-		ctrllog.Log.Error(errors.New(errorReason), "cannot retrieve the number of vCPUs for "+nodePool.Name+" node pool as its specification is inconsistent")
-
-		return vCpusDetail{vCpusCount: -1, vCpusCountErrorReason: errorReason}
+		ctrllog.Log.Error(errMissingAWSPlatformSpec, "cannot retrieve the number of vCPUs for "+nodePool.Name+" node pool as its specification is inconsistent")
+		return -1, errMissingAWSPlatformSpec
 	}
 
 	ec2InstanceType := awsPlatform.InstanceType
 
-	if unresolvedErrorReason, isUnresolved := (*ec2InstanceTypeToResolutionErrorReason)[ec2InstanceType]; isUnresolved {
-		return vCpusDetail{vCpusCount: -1, vCpusCountErrorReason: unresolvedErrorReason}
-	}
-
+	// Check if we have a cached vCPU count for this instance type
 	if vCpusCountPerNode, isCached := c.ec2InstanceTypeToVCpusCount[ec2InstanceType]; isCached {
-		return vCpusDetail{vCpusCount: vCpusCountPerNode}
-	}
-	awsInput := ec2.DescribeInstanceTypesInput{InstanceTypes: []ec2types.InstanceType{ec2types.InstanceType(ec2InstanceType)}}
-	unresolvedErrorReason := ""
-
-	if awsOuput, err := c.ec2Client.DescribeInstanceTypes(ctx, &awsInput); awsOuput != nil && err == nil {
-		if len(awsOuput.InstanceTypes) == 1 {
-			ec2InstanceTypeInfo := awsOuput.InstanceTypes[0]
-
-			instanceTypeInInfo := ec2InstanceTypeInfo.InstanceType
-			cpuInfo := ec2InstanceTypeInfo.VCpuInfo
-
-			if string(instanceTypeInInfo) == ec2InstanceType && cpuInfo != nil {
-				vCpusCountPtr := cpuInfo.DefaultVCpus
-
-				if vCpusCountPtr != nil {
-					vCpusCount := *vCpusCountPtr
-
-					c.ec2InstanceTypeToVCpusCount[ec2InstanceType] = vCpusCount
-
-					return vCpusDetail{vCpusCount: vCpusCount}
-				}
-			}
-		}
-
-		unresolvedErrorReason = "unexpected AWS output"
-		ctrllog.Log.Error(errors.New(unresolvedErrorReason), "unexpected output for EC2 verb 'describe-instance-types' while querying the following EC2 instance type: "+ec2InstanceType)
-	} else {
-		unresolvedErrorReason = "failed to call AWS"
-		ctrllog.Log.Error(err, "failed to call AWS to resolve the number of vCpus per node for the following EC2 instance type: "+ec2InstanceType)
+		return vCpusCountPerNode, nil
 	}
 
-	(*ec2InstanceTypeToResolutionErrorReason)[ec2InstanceType] = unresolvedErrorReason
+	timeoutCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
 
-	return vCpusDetail{vCpusCount: -1, vCpusCountErrorReason: unresolvedErrorReason}
+	// If this instance type was previously determined to be unknown by
+	// the EC2 API, skip it and go directly to the ConfigMap.
+	if c.awsInstanceTypeUnknown.Has(ec2InstanceType) {
+		return extractCPUFromInstanceTypeNameViaConfigMap(timeoutCtx, ec2InstanceType, c.Client)
+	}
+
+	// Try EC2 API
+	vCpusCount, ec2Err := extractCPUFromInstanceTypeNameViaEC2API(timeoutCtx, ec2InstanceType, c.ec2Client)
+	if ec2Err == nil {
+		c.ec2InstanceTypeToVCpusCount[ec2InstanceType] = vCpusCount
+		return vCpusCount, nil
+	}
+
+	// Cache the fact that the EC2 API does not recognize this instance type
+	// so that subsequent calls skip straight to the ConfigMap fallback.
+	if errors.Is(ec2Err, errUnknownInstanceType) {
+		c.awsInstanceTypeUnknown.Insert(ec2InstanceType)
+	}
+
+	// Try ConfigMap as fallback. ConfigMap values may change without
+	// restarting the operator. The controller-runtime client has an
+	// informer-based cache, so repeated Get calls hit the local cache,
+	// not the API server. We intentionally do not cache ConfigMap results
+	// so that updates to the ConfigMap are picked up on the next collection.
+	return extractCPUFromInstanceTypeNameViaConfigMap(timeoutCtx, ec2InstanceType, c.Client)
 }
 
 func (c *nodePoolsMetricsCollector) Collect(ch chan<- prometheus.Metric) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
 	ctx := context.Background()
 	currentCollectTime := c.clock.Now()
 	log := ctrllog.Log
-	ec2InstanceTypeToResolutionErrorReason := make(map[string]string)
 
 	// Data retrieved from objects other than node pools in below loops
 	hclusterPathToData := make(map[string]*hclusterData)
@@ -401,13 +468,12 @@ func (c *nodePoolsMetricsCollector) Collect(ch chan<- prometheus.Metric) {
 
 				// vCpusCountByHClusterMetric - aggregation
 				if hclusterData.vCpusCount >= 0 && nodePool.Status.Replicas > 0 {
-					nodeVCpusDetails := c.retrieveVCpusDetailsPerNode(ctx, nodePool, &ec2InstanceTypeToResolutionErrorReason)
-
-					if nodeVCpusDetails.vCpusCountErrorReason == "" {
-						hclusterData.vCpusCount += nodeVCpusDetails.vCpusCount * nodePool.Status.Replicas
-					} else {
+					nodeVCpus, err := c.retrieveVCpusDetailsPerNode(ctx, nodePool)
+					if err != nil {
 						hclusterData.vCpusCount = -1
-						hclusterData.vCpusCountErrorReason = nodeVCpusDetails.vCpusCountErrorReason
+						hclusterData.vCpusCountErr = err
+					} else {
+						hclusterData.vCpusCount += nodeVCpus * nodePool.Status.Replicas
 					}
 				}
 			}
@@ -537,12 +603,12 @@ func (c *nodePoolsMetricsCollector) Collect(ch chan<- prometheus.Metric) {
 		)
 
 		// vCpusCountByHClusterMetric
-		if hclusterData.vCpusCountErrorReason != "" {
+		if hclusterData.vCpusCountErr != nil {
 			ch <- prometheus.MustNewConstMetric(
 				vCpusComputationErrorByHClusterMetricDesc,
 				prometheus.GaugeValue,
 				1.0,
-				append(hclusterLabelValues, hclusterData.vCpusCountErrorReason)...,
+				append(hclusterLabelValues, hclusterData.vCpusCountErr.Error())...,
 			)
 		}
 	}
