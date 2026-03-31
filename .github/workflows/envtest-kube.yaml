@@ -3,17 +3,16 @@ name: Envtest Vanilla Kube API Validation
 on:
   push:
     branches: [main]
-    # TODO: uncomment paths filter after validating workflow
-    # paths:
-    #   - 'api/**'
-    #   - 'test/envtest/**'
-    #   - 'cmd/install/assets/hypershift-operator/tests/**'
+    paths:
+      - 'api/**'
+      - 'test/envtest/**'
+      - 'cmd/install/assets/hypershift-operator/tests/**'
   pull_request:
     branches: [main]
-    # paths:
-    #   - 'api/**'
-    #   - 'test/envtest/**'
-    #   - 'cmd/install/assets/hypershift-operator/tests/**'
+    paths:
+      - 'api/**'
+      - 'test/envtest/**'
+      - 'cmd/install/assets/hypershift-operator/tests/**'
   workflow_dispatch: {}
 
 jobs:
