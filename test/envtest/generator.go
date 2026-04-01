@@ -13,7 +13,7 @@ import (
 	. "github.com/onsi/gomega"
 	yamlpatch "github.com/vmware-archive/yaml-patch"
 
-	installassets "github.com/openshift/hypershift/cmd/install/assets"
+	crdassets "github.com/openshift/hypershift/cmd/install/assets/crds"
 
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -134,7 +134,7 @@ func loadCRDFromFile(filename string) (*apiextensionsv1.CustomResourceDefinition
 // all providers) for the given feature set, using the same CustomResourceDefinitions
 // function as setupCRDs in cmd/install/install.go.
 func allCRDsForFeatureSet(featureSet string) []*apiextensionsv1.CustomResourceDefinition {
-	crdObjects := installassets.CustomResourceDefinitions(
+	crdObjects := crdassets.CustomResourceDefinitions(
 		func(path string, crd *apiextensionsv1.CustomResourceDefinition) bool {
 			// Exclude non-CRD files (featuregates, test suites).
 			if strings.Contains(path, "payload-manifests") || strings.Contains(path, "tests/") {
