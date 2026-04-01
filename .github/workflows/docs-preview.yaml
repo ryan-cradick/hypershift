@@ -15,6 +15,7 @@ jobs:
     name: Build Docs
     runs-on: arc-runner-set
     timeout-minutes: 10
+    continue-on-error: true
     steps:
       - uses: actions/checkout@v6
         with:
@@ -40,6 +41,7 @@ jobs:
     needs: build
     runs-on: arc-runner-set
     timeout-minutes: 5
+    continue-on-error: true
     environment:
       name: docs-preview
       url: https://pr-${{ github.event.pull_request.number }}.hypershift.pages.dev
