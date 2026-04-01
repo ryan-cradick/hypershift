@@ -18,6 +18,7 @@ CODE_GEN := $(abspath $(TOOLS_BIN_DIR)/codegen)
 STATICCHECK := $(abspath $(TOOLS_BIN_DIR)/staticcheck)
 GENAPIDOCS := $(abspath $(TOOLS_BIN_DIR)/gen-crd-api-reference-docs)
 MOCKGEN := $(abspath $(TOOLS_BIN_DIR)/mockgen)
+YQ := $(abspath $(TOOLS_BIN_DIR)/yq)
 
 CODESPELL_VER := 2.4.1
 CODESPELL_BIN := codespell
@@ -135,6 +136,9 @@ verify-ci: generate update staticcheck fmt vet
 $(CONTROLLER_GEN): $(TOOLS_DIR)/go.mod # Build controller-gen from tools folder.
 	cd $(TOOLS_DIR); $(GO) build -tags=tools -o $(BIN_DIR)/controller-gen sigs.k8s.io/controller-tools/cmd/controller-gen
 
+$(YQ): $(TOOLS_DIR)/go.mod # Build yq v4 from tools folder.
+	cd $(TOOLS_DIR); $(GO) build -tags=tools -o $(BIN_DIR)/yq github.com/mikefarah/yq/v4
+
 $(CODE_GEN): $(TOOLS_DIR)/go.mod # Build code-gen from tools folder.
 	cd $(TOOLS_DIR); $(GO) build -tags=tools -o $(BIN_DIR)/codegen github.com/openshift/api/tools/codegen/cmd
 
@@ -167,7 +171,10 @@ karpenter-operator:
 	$(GO_BUILD_RECIPE) -o $(OUT_DIR)/karpenter-operator ./karpenter-operator
 
 .PHONY: karpenter-api
-karpenter-api:
+# Sync upstream CRDs from vendor, apply OpenShift CEL/schema adjustments, then generate OpenshiftEC2NodeClass from api/karpenter.
+karpenter-api: $(CONTROLLER_GEN) $(YQ)
+	karpenter-operator/hack/crds-sync.sh
+	karpenter-operator/hack/adjust-cel.sh
 	$(CONTROLLER_GEN) $(CRD_OPTIONS) paths="./api/karpenter/..." output:crd:artifacts:config=karpenter-operator/controllers/karpenter/assets
 
 .PHONY: control-plane-operator
