@@ -7,6 +7,14 @@ ignore:
   - "test/**"
   - "hack/**"
   - "vendor/**"
+  - "Makefile"
+  - ".*/**"
+  - "*.md"
+  - "*.yaml"
+  - "*.yml"
+  - "*.mod"
+  - "*.sum"
+  - ".*"
 
 comment:
   layout: "condensed_header, diff, files, flags, components"
