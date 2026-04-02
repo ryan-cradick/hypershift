@@ -122,21 +122,21 @@ lint-fix: generate
 	$(GOLANGCI_LINT) run --config ./.golangci.yml --fix -v; main_rc=$$?; \
 	exit $$(( api_rc > main_rc ? api_rc : main_rc ))
 
-.PHONY: verify
-verify: generate update staticcheck fmt vet verify-codespell lint cpo-container-sync run-gitlint
+.PHONY: verify-git-clean
+verify-git-clean:
 	git diff-index --cached --quiet --ignore-submodules HEAD --
 	git diff-files --quiet --ignore-submodules
 	git diff --exit-code HEAD --
 	$(eval STATUS = $(shell git status -s))
 	$(if $(strip $(STATUS)),$(error untracked files detected: ${STATUS}))
 
-.PHONY: verify-ci
-verify-ci: generate update staticcheck fmt vet
-	git diff-index --cached --quiet --ignore-submodules HEAD --
-	git diff-files --quiet --ignore-submodules
-	git diff --exit-code HEAD --
-	$(eval STATUS = $(shell git status -s))
-	$(if $(strip $(STATUS)),$(error untracked files detected: ${STATUS}))
+.PHONY: verify-parallel
+verify-parallel: verify-codespell lint cpo-container-sync run-gitlint
+
+.PHONY: verify
+verify: generate update staticcheck fmt vet
+	$(MAKE) -j verify-parallel
+	$(MAKE) verify-git-clean
 
 $(CONTROLLER_GEN): $(TOOLS_DIR)/go.mod # Build controller-gen from tools folder.
 	cd $(TOOLS_DIR); $(GO) build -tags=tools -o $(BIN_DIR)/controller-gen sigs.k8s.io/controller-tools/cmd/controller-gen
