@@ -97,9 +97,10 @@ KUBEAPILINTER_PLUGIN := $(abspath $(TOOLS_BIN_DIR)/kube-api-linter.so)
 $(KUBEAPILINTER_PLUGIN): $(TOOLS_DIR)/go.mod # Build kube-api-linter as Go plugin
 	cd $(TOOLS_DIR); CGO_ENABLED=1 $(GO) build -buildmode=plugin -o $(KUBEAPILINTER_PLUGIN) sigs.k8s.io/kube-api-linter/pkg/plugin
 
-# When not otherwise set, diff/lint against the local main branch.
+# When not otherwise set, diff/lint against the upstream main branch.
 # This is always set in OpenShift CI.
-PULL_BASE_SHA ?= main
+UPSTREAM_REMOTE ?= $(shell git remote -v 2>/dev/null | grep 'openshift/hypershift.*fetch' | head -1 | cut -f1)
+PULL_BASE_SHA ?= $(if $(UPSTREAM_REMOTE),$(UPSTREAM_REMOTE)/main,main)
 
 .PHONY: api-lint
 api-lint: $(GOLANGCI_LINT) $(KUBEAPILINTER_PLUGIN)
@@ -110,12 +111,16 @@ api-lint-fix: $(GOLANGCI_LINT) $(KUBEAPILINTER_PLUGIN)
 	cd api && $(GOLANGCI_LINT) run --config ./.golangci.yml --fix -v --new-from-rev=${PULL_BASE_SHA}
 
 .PHONY: lint
-lint: generate api-lint
-	$(GOLANGCI_LINT) run --config ./.golangci.yml --modules-download-mode=readonly -v
+lint: generate
+	$(MAKE) api-lint; api_rc=$$?; \
+	$(GOLANGCI_LINT) run --config ./.golangci.yml --modules-download-mode=readonly -v; main_rc=$$?; \
+	exit $$(( api_rc > main_rc ? api_rc : main_rc ))
 
 .PHONY: lint-fix
-lint-fix: generate api-lint-fix
-	$(GOLANGCI_LINT) run --config ./.golangci.yml --fix -v
+lint-fix: generate
+	$(MAKE) api-lint-fix; api_rc=$$?; \
+	$(GOLANGCI_LINT) run --config ./.golangci.yml --fix -v; main_rc=$$?; \
+	exit $$(( api_rc > main_rc ? api_rc : main_rc ))
 
 .PHONY: verify
 verify: generate update staticcheck fmt vet verify-codespell lint cpo-container-sync run-gitlint
