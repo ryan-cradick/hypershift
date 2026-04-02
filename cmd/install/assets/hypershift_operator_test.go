@@ -620,6 +620,7 @@ func TestExternalDNSDeployment_Build(t *testing.T) {
 	tests := map[string]struct {
 		modify     func(*ExternalDNSDeployment)
 		assertArgs func(*GomegaWithT, []string)
+		assertEnv  func(*GomegaWithT, []corev1.EnvVar)
 	}{
 		"When no interval is specified it should use the default 1m interval": {
 			modify: func(d *ExternalDNSDeployment) {},
@@ -671,6 +672,9 @@ func TestExternalDNSDeployment_Build(t *testing.T) {
 					g.Expect(arg).NotTo(HavePrefix("--aws-zones-cache-duration"))
 				}
 			},
+			assertEnv: func(g *GomegaWithT, envVars []corev1.EnvVar) {
+				g.Expect(envVars).To(ContainElement(corev1.EnvVar{Name: "AZURE_SDK_MAX_RETRIES", Value: "5"}))
+			},
 		},
 		"When GCP provider is used it should not include AWS zones cache duration arg": {
 			modify: func(d *ExternalDNSDeployment) {
@@ -692,6 +696,9 @@ func TestExternalDNSDeployment_Build(t *testing.T) {
 			test.modify(&d)
 			deployment := d.Build()
 			test.assertArgs(g, deployment.Spec.Template.Spec.Containers[0].Args)
+			if test.assertEnv != nil {
+				test.assertEnv(g, deployment.Spec.Template.Spec.Containers[0].Env)
+			}
 		})
 	}
 }

@@ -394,6 +394,14 @@ func (o ExternalDNSDeployment) Build() *appsv1.Deployment {
 			fmt.Sprintf("--aws-zones-cache-duration=%s", awsZonesCacheDuration),
 		)
 	case AzureExternalDNSProvider:
+		// Increase the Azure SDK retry count from the default of 3 to handle transient
+		// 429 (Too Many Requests) responses from the Azure DNS API with exponential backoff.
+		// See: https://github.com/kubernetes-sigs/external-dns/blob/master/docs/tutorials/azure.md#throttling
+		deployment.Spec.Template.Spec.Containers[0].Env = append(deployment.Spec.Template.Spec.Containers[0].Env,
+			corev1.EnvVar{
+				Name:  "AZURE_SDK_MAX_RETRIES",
+				Value: "5",
+			})
 		deployment.Spec.Template.Spec.Containers[0].Args = append(deployment.Spec.Template.Spec.Containers[0].Args,
 			"--azure-config-file=/etc/provider/credentials",
 		)
