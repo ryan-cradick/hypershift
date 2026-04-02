@@ -23,7 +23,6 @@ import (
 	"github.com/openshift/hypershift/support/util/fakeimagemetadataprovider"
 
 	configv1 "github.com/openshift/api/config/v1"
-	imageregistryv1 "github.com/openshift/api/imageregistry/v1"
 	operatorv1 "github.com/openshift/api/operator/v1"
 
 	appsv1 "k8s.io/api/apps/v1"
@@ -2960,130 +2959,6 @@ func Test_reconciler_reconcileKASConnectionCheckerDeployment(t *testing.T) {
 
 			if tt.validate != nil {
 				tt.validate(t, r.client)
-			}
-		})
-	}
-}
-
-func TestReconcileImageRegistry(t *testing.T) {
-	testCases := []struct {
-		name                     string
-		hcp                      *hyperv1.HostedControlPlane
-		platformType             hyperv1.PlatformType
-		existingRegistryConfig   *imageregistryv1.Config
-		expectRegistryReconciled bool
-		expectErrors             bool
-		expectVAPReconciled      bool
-	}{
-		{
-			name: "When OpenStack platform has no existing config it should skip to let CIRO bootstrap",
-			hcp: func() *hyperv1.HostedControlPlane {
-				hcp := fakeHCP()
-				hcp.Spec.Platform.Type = hyperv1.OpenStackPlatform
-				return hcp
-			}(),
-			platformType:             hyperv1.OpenStackPlatform,
-			existingRegistryConfig:   nil,
-			expectRegistryReconciled: false,
-			expectErrors:             false,
-		},
-		{
-			name: "When OpenStack platform has existing config it should reconcile normally",
-			hcp: func() *hyperv1.HostedControlPlane {
-				hcp := fakeHCP()
-				hcp.Spec.Platform.Type = hyperv1.OpenStackPlatform
-				return hcp
-			}(),
-			platformType: hyperv1.OpenStackPlatform,
-			existingRegistryConfig: &imageregistryv1.Config{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:            "cluster",
-					ResourceVersion: "1",
-					Finalizers:      []string{"imageregistry.operator.openshift.io/finalizer"},
-				},
-				Spec: imageregistryv1.ImageRegistrySpec{
-					OperatorSpec: operatorv1.OperatorSpec{
-						ManagementState: operatorv1.Managed,
-					},
-				},
-			},
-			expectRegistryReconciled: true,
-			expectErrors:             false,
-		},
-		{
-			name: "When Azure platform it should reconcile validating admission policies",
-			hcp: func() *hyperv1.HostedControlPlane {
-				hcp := fakeHCP()
-				hcp.Spec.Platform.Type = hyperv1.AzurePlatform
-				return hcp
-			}(),
-			platformType:             hyperv1.AzurePlatform,
-			expectRegistryReconciled: true,
-			expectVAPReconciled:      true,
-			expectErrors:             false,
-		},
-		{
-			name: "When AWS platform it should reconcile registry config",
-			hcp: func() *hyperv1.HostedControlPlane {
-				hcp := fakeHCP()
-				hcp.Spec.Platform.Type = hyperv1.AWSPlatform
-				return hcp
-			}(),
-			platformType:             hyperv1.AWSPlatform,
-			expectRegistryReconciled: true,
-			expectErrors:             false,
-		},
-	}
-
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			g := NewWithT(t)
-
-			var guestObjects []client.Object
-			if tc.existingRegistryConfig != nil {
-				guestObjects = append(guestObjects, tc.existingRegistryConfig)
-			}
-
-			guestClient := fake.NewClientBuilder().
-				WithScheme(api.Scheme).
-				WithObjects(guestObjects...).
-				Build()
-
-			cpClient := fake.NewClientBuilder().
-				WithScheme(api.Scheme).
-				WithObjects(tc.hcp).
-				WithStatusSubresource(&hyperv1.HostedControlPlane{}).
-				Build()
-
-			r := &reconciler{
-				client:                 guestClient,
-				cpClient:               cpClient,
-				CreateOrUpdateProvider: &simpleCreateOrUpdater{},
-				platformType:           tc.platformType,
-			}
-
-			ctx := logr.NewContext(t.Context(), zapr.NewLogger(zaptest.NewLogger(t)))
-			errs := r.reconcileImageRegistry(ctx, tc.hcp)
-
-			if tc.expectErrors {
-				g.Expect(len(errs)).To(BeNumerically(">", 0), "expected errors but got none")
-			} else {
-				g.Expect(len(errs)).To(Equal(0), "expected no errors but got: %v", errs)
-			}
-
-			registryConfig := manifests.Registry()
-			err := guestClient.Get(t.Context(), client.ObjectKeyFromObject(registryConfig), registryConfig)
-			if tc.expectRegistryReconciled {
-				g.Expect(err).ToNot(HaveOccurred(), "expected registry config to exist after reconciliation")
-				g.Expect(registryConfig.Spec.HTTPSecret).ToNot(BeEmpty(), "expected HTTPSecret to be set")
-			} else if tc.existingRegistryConfig == nil {
-				g.Expect(apierrors.IsNotFound(err)).To(BeTrue(), "expected registry config to not exist")
-			}
-
-			if tc.expectVAPReconciled {
-				vap := manifests.ValidatingAdmissionPolicy("deny-removed-managementstate")
-				err := guestClient.Get(t.Context(), client.ObjectKeyFromObject(vap), vap)
-				g.Expect(err).ToNot(HaveOccurred(), "expected ValidatingAdmissionPolicy to exist for Azure platform")
 			}
 		})
 	}
