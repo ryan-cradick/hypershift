@@ -11,6 +11,7 @@ import (
 	"github.com/openshift/hypershift/support/api"
 
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	apiversion "k8s.io/apimachinery/pkg/version"
@@ -1008,4 +1009,41 @@ func TestCountAvailableNodes(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestDeleteAllIfNeeded(t *testing.T) {
+	scheme := runtime.NewScheme()
+	_ = corev1.AddToScheme(scheme)
+
+	t.Run("When all objects exist it should delete them without error", func(t *testing.T) {
+		g := NewGomegaWithT(t)
+		cm1 := &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Name: "cm-1", Namespace: "default"}}
+		cm2 := &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Name: "cm-2", Namespace: "default"}}
+		c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(cm1, cm2).Build()
+
+		err := DeleteAllIfNeeded(context.Background(), c, cm1, cm2)
+		g.Expect(err).ToNot(HaveOccurred())
+
+		err = c.Get(context.Background(), crclient.ObjectKeyFromObject(cm1), &corev1.ConfigMap{})
+		g.Expect(apierrors.IsNotFound(err)).To(BeTrue(), "cm1 should be deleted")
+		err = c.Get(context.Background(), crclient.ObjectKeyFromObject(cm2), &corev1.ConfigMap{})
+		g.Expect(apierrors.IsNotFound(err)).To(BeTrue(), "cm2 should be deleted")
+	})
+
+	t.Run("When no objects are provided it should return nil", func(t *testing.T) {
+		g := NewGomegaWithT(t)
+		c := fake.NewClientBuilder().WithScheme(scheme).Build()
+
+		err := DeleteAllIfNeeded(context.Background(), c)
+		g.Expect(err).ToNot(HaveOccurred())
+	})
+
+	t.Run("When an object does not exist it should not return an error", func(t *testing.T) {
+		g := NewGomegaWithT(t)
+		cm := &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Name: "nonexistent", Namespace: "default"}}
+		c := fake.NewClientBuilder().WithScheme(scheme).Build()
+
+		err := DeleteAllIfNeeded(context.Background(), c, cm)
+		g.Expect(err).ToNot(HaveOccurred())
+	})
 }
