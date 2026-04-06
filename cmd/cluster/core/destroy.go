@@ -2,7 +2,6 @@ package core
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -148,11 +147,7 @@ func DestroyCluster(ctx context.Context, hostedCluster *hyperv1.HostedCluster, o
 
 		if shouldDestroyPlatformSpecifics {
 			if err = waitForRestOfFinalizers(ctx, hostedCluster, o, c); err != nil {
-				if errors.Is(err, context.DeadlineExceeded) {
-					o.Log.Info("Timed out waiting for hosted cluster finalizers to be removed, proceeding with infrastructure cleanup", "error", err)
-				} else {
-					return err
-				}
+				return err
 			}
 		}
 	}
