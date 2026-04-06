@@ -4,6 +4,8 @@ import (
 	"context"
 	"testing"
 
+	. "github.com/onsi/gomega"
+
 	hyperv1 "github.com/openshift/hypershift/api/hypershift/v1beta1"
 	"github.com/openshift/hypershift/hypershift-operator/controllers/manifests"
 	"github.com/openshift/hypershift/hypershift-operator/controllers/manifests/networkpolicy"
@@ -17,6 +19,7 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/util/intstr"
 
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -577,6 +580,198 @@ func TestReconcileNetworkPolicies_OpenshiftIngressPolicy(t *testing.T) {
 				if !apierrors.IsNotFound(err) {
 					t.Error("Expected openshift-ingress NetworkPolicy to be deleted from the cluster, but it still exists")
 				}
+			}
+		})
+	}
+}
+
+func TestReconcileLoadBalancerOauthNetworkPolicy(t *testing.T) {
+	testCases := []struct {
+		name string
+	}{
+		{
+			name: "When reconciling the loadbalancer-oauth network policy, it should allow ingress on port 6443 from any source",
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			g := NewWithT(t)
+
+			policy := networkpolicy.LoadBalancerOauthNetworkPolicy("test-namespace")
+			err := reconcileLoadBalancerOauthNetworkPolicy(policy)
+			g.Expect(err).ToNot(HaveOccurred())
+
+			// Verify it only has ingress policy type
+			g.Expect(policy.Spec.PolicyTypes).To(Equal([]networkingv1.PolicyType{networkingv1.PolicyTypeIngress}))
+
+			// Verify the pod selector targets oauth-openshift pods
+			g.Expect(policy.Spec.PodSelector.MatchLabels).To(Equal(map[string]string{
+				"app": "oauth-openshift",
+			}))
+
+			// Verify exactly one ingress rule
+			g.Expect(policy.Spec.Ingress).To(HaveLen(1))
+
+			// Verify the ingress rule allows from any source (empty From list)
+			g.Expect(policy.Spec.Ingress[0].From).To(BeEmpty())
+
+			// Verify the ingress rule allows port 6443/TCP
+			expectedPort := intstr.FromInt(6443)
+			expectedProtocol := corev1.ProtocolTCP
+			g.Expect(policy.Spec.Ingress[0].Ports).To(HaveLen(1))
+			g.Expect(policy.Spec.Ingress[0].Ports[0].Port).To(Equal(&expectedPort))
+			g.Expect(policy.Spec.Ingress[0].Ports[0].Protocol).To(Equal(&expectedProtocol))
+		})
+	}
+}
+
+func TestReconcileNetworkPolicies_LoadBalancerOauth(t *testing.T) {
+	testCases := []struct {
+		name          string
+		hcluster      *hyperv1.HostedCluster
+		hcp           *hyperv1.HostedControlPlane
+		expectCreated bool
+	}{
+		{
+			name: "When OAuth service uses LoadBalancer strategy, it should create loadbalancer-oauth network policy",
+			hcluster: &hyperv1.HostedCluster{
+				ObjectMeta: metav1.ObjectMeta{Name: "test", Namespace: "test-ns"},
+				Spec: hyperv1.HostedClusterSpec{
+					Platform: hyperv1.PlatformSpec{Type: hyperv1.AzurePlatform},
+					Services: []hyperv1.ServicePublishingStrategyMapping{
+						{Service: hyperv1.APIServer, ServicePublishingStrategy: hyperv1.ServicePublishingStrategy{Type: hyperv1.LoadBalancer}},
+						{Service: hyperv1.OAuthServer, ServicePublishingStrategy: hyperv1.ServicePublishingStrategy{Type: hyperv1.LoadBalancer}},
+					},
+				},
+			},
+			hcp: &hyperv1.HostedControlPlane{
+				Spec: hyperv1.HostedControlPlaneSpec{
+					Platform: hyperv1.PlatformSpec{Type: hyperv1.AzurePlatform},
+					Services: []hyperv1.ServicePublishingStrategyMapping{
+						{Service: hyperv1.APIServer, ServicePublishingStrategy: hyperv1.ServicePublishingStrategy{Type: hyperv1.LoadBalancer}},
+						{Service: hyperv1.OAuthServer, ServicePublishingStrategy: hyperv1.ServicePublishingStrategy{Type: hyperv1.LoadBalancer}},
+					},
+				},
+			},
+			expectCreated: true,
+		},
+		{
+			name: "When OAuth service uses Route strategy, it should not create loadbalancer-oauth network policy",
+			hcluster: &hyperv1.HostedCluster{
+				ObjectMeta: metav1.ObjectMeta{Name: "test", Namespace: "test-ns"},
+				Spec: hyperv1.HostedClusterSpec{
+					Platform: hyperv1.PlatformSpec{Type: hyperv1.AWSPlatform, AWS: &hyperv1.AWSPlatformSpec{EndpointAccess: hyperv1.Public}},
+					Services: []hyperv1.ServicePublishingStrategyMapping{
+						{Service: hyperv1.APIServer, ServicePublishingStrategy: hyperv1.ServicePublishingStrategy{Type: hyperv1.LoadBalancer}},
+						{Service: hyperv1.OAuthServer, ServicePublishingStrategy: hyperv1.ServicePublishingStrategy{Type: hyperv1.Route}},
+					},
+				},
+			},
+			hcp: &hyperv1.HostedControlPlane{
+				Spec: hyperv1.HostedControlPlaneSpec{
+					Platform: hyperv1.PlatformSpec{Type: hyperv1.AWSPlatform, AWS: &hyperv1.AWSPlatformSpec{EndpointAccess: hyperv1.Public}},
+					Services: []hyperv1.ServicePublishingStrategyMapping{
+						{Service: hyperv1.APIServer, ServicePublishingStrategy: hyperv1.ServicePublishingStrategy{Type: hyperv1.LoadBalancer}},
+						{Service: hyperv1.OAuthServer, ServicePublishingStrategy: hyperv1.ServicePublishingStrategy{Type: hyperv1.Route}},
+					},
+				},
+			},
+			expectCreated: false,
+		},
+		{
+			name: "When OAuth service uses NodePort strategy, it should not create loadbalancer-oauth network policy",
+			hcluster: &hyperv1.HostedCluster{
+				ObjectMeta: metav1.ObjectMeta{Name: "test", Namespace: "test-ns"},
+				Spec: hyperv1.HostedClusterSpec{
+					Platform: hyperv1.PlatformSpec{Type: hyperv1.IBMCloudPlatform},
+					Services: []hyperv1.ServicePublishingStrategyMapping{
+						{Service: hyperv1.APIServer, ServicePublishingStrategy: hyperv1.ServicePublishingStrategy{Type: hyperv1.Route}},
+						{Service: hyperv1.OAuthServer, ServicePublishingStrategy: hyperv1.ServicePublishingStrategy{
+							Type:     hyperv1.NodePort,
+							NodePort: &hyperv1.NodePortPublishingStrategy{Address: "10.0.0.1", Port: 31000},
+						}},
+					},
+				},
+			},
+			hcp: &hyperv1.HostedControlPlane{
+				Spec: hyperv1.HostedControlPlaneSpec{
+					Platform: hyperv1.PlatformSpec{Type: hyperv1.IBMCloudPlatform},
+					Services: []hyperv1.ServicePublishingStrategyMapping{
+						{Service: hyperv1.APIServer, ServicePublishingStrategy: hyperv1.ServicePublishingStrategy{Type: hyperv1.Route}},
+						{Service: hyperv1.OAuthServer, ServicePublishingStrategy: hyperv1.ServicePublishingStrategy{
+							Type:     hyperv1.NodePort,
+							NodePort: &hyperv1.NodePortPublishingStrategy{Address: "10.0.0.1", Port: 31000},
+						}},
+					},
+				},
+			},
+			expectCreated: false,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			g := NewWithT(t)
+
+			controlPlaneNamespaceName := manifests.HostedControlPlaneNamespace(tc.hcluster.Namespace, tc.hcluster.Name)
+			tc.hcp.Namespace = controlPlaneNamespaceName
+			tc.hcp.Name = tc.hcluster.Name
+
+			scheme := runtime.NewScheme()
+			g.Expect(hyperv1.AddToScheme(scheme)).To(Succeed())
+			g.Expect(corev1.AddToScheme(scheme)).To(Succeed())
+			g.Expect(configv1.AddToScheme(scheme)).To(Succeed())
+			g.Expect(networkingv1.AddToScheme(scheme)).To(Succeed())
+
+			//nolint:staticcheck // SA1019: corev1.Endpoints is intentionally used for backward compatibility
+			kubernetesEndpoint := &corev1.Endpoints{
+				ObjectMeta: metav1.ObjectMeta{Name: "kubernetes", Namespace: "default"},
+				//nolint:staticcheck // SA1019: corev1.EndpointSubset is intentionally used for backward compatibility
+				Subsets: []corev1.EndpointSubset{
+					{Addresses: []corev1.EndpointAddress{{IP: "10.0.0.1"}}},
+				},
+			}
+
+			managementClusterNetwork := &configv1.Network{
+				ObjectMeta: metav1.ObjectMeta{Name: "cluster"},
+				Spec: configv1.NetworkSpec{
+					ClusterNetwork: []configv1.ClusterNetworkEntry{{CIDR: "10.128.0.0/14"}},
+					ServiceNetwork: []string{"172.30.0.0/16"},
+				},
+			}
+
+			objs := []client.Object{kubernetesEndpoint, managementClusterNetwork}
+			fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(objs...).Build()
+
+			reconciler := &HostedClusterReconciler{
+				Client:                        fakeClient,
+				ManagementClusterCapabilities: fakecapabilities.NewSupportAllExcept(),
+			}
+
+			createdNetworkPolicies := make(map[string]*networkingv1.NetworkPolicy)
+			createOrUpdate := upsert.CreateOrUpdateFN(func(ctx context.Context, c client.Client, obj client.Object, f controllerutil.MutateFn) (controllerutil.OperationResult, error) {
+				if netPol, ok := obj.(*networkingv1.NetworkPolicy); ok {
+					if err := f(); err != nil {
+						return controllerutil.OperationResultNone, err
+					}
+					createdNetworkPolicies[netPol.Name] = netPol
+				}
+				return controllerutil.OperationResultCreated, nil
+			})
+
+			ctx := context.Background()
+			log := ctrl.Log.WithName("test")
+			version := semver.MustParse("4.15.0")
+
+			err := reconciler.reconcileNetworkPolicies(ctx, log, createOrUpdate, tc.hcluster, tc.hcp, version, false)
+			g.Expect(err).ToNot(HaveOccurred())
+
+			_, policyCreated := createdNetworkPolicies["loadbalancer-oauth"]
+			if tc.expectCreated {
+				g.Expect(policyCreated).To(BeTrue(), "expected loadbalancer-oauth NetworkPolicy to be created")
+			} else {
+				g.Expect(policyCreated).To(BeFalse(), "expected loadbalancer-oauth NetworkPolicy to NOT be created")
 			}
 		})
 	}
