@@ -4922,10 +4922,9 @@ spec:
                         - type
                         type: object
                         x-kubernetes-validations:
-                        - message: privateLink is required when type is PrivateLink,
-                            and forbidden otherwise
-                          rule: 'self.type == ''PrivateLink'' ? has(self.privateLink)
-                            : !has(self.privateLink)'
+                        - message: privateLink is forbidden when type is not PrivateLink
+                          rule: 'self.type != ''PrivateLink'' ? !has(self.privateLink)
+                            : true'
                       resourceGroup:
                         default: default
                         description: |-
@@ -5065,7 +5064,7 @@ spec:
                         : !has(self.private))'
                     - message: workloadIdentities.controlPlaneOperator is required
                         when Private Link is configured with WorkloadIdentities authentication
-                      rule: '!has(self.private) || !has(self.private.privateLink)
+                      rule: '!has(self.private) || self.private.type != ''PrivateLink''
                         || self.azureAuthenticationConfig.azureAuthenticationConfigType
                         != ''WorkloadIdentities'' || has(self.azureAuthenticationConfig.workloadIdentities.controlPlaneOperator)'
                   gcp:
