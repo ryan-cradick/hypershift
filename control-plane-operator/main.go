@@ -600,6 +600,22 @@ func NewStartCommand() *cobra.Command {
 					os.Exit(1)
 				}
 
+				if oauthStrategy := util.ServicePublishingStrategyByTypeForHCP(hcp, hyperv1.OAuthServer); oauthStrategy != nil && oauthStrategy.Type == hyperv1.LoadBalancer {
+					azureOAuthObserverName := "AzurePrivateLinkServiceOAuthObserver"
+
+					if err = (&azureprivatelinkservice.AzurePrivateLinkServiceObserver{
+						Client:                 mgr.GetClient(),
+						ControllerName:         azureOAuthObserverName,
+						ServiceNamespace:       namespace,
+						ServiceName:            manifests.OauthServerService("").Name,
+						HCPNamespace:           namespace,
+						CreateOrUpdateProvider: upsert.New(enableCIDebugOutput),
+					}).SetupWithManager(ctx, mgr); err != nil {
+						setupLog.Error(err, "unable to create controller", "controller", azureOAuthObserverName)
+						os.Exit(1)
+					}
+				}
+
 				azureReconcilerName := "AzurePrivateLinkServiceReconciler"
 
 				cloudConfig, err := azureutil.GetAzureCloudConfiguration(hcp.Spec.Platform.Azure.Cloud)
