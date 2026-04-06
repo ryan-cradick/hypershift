@@ -652,9 +652,7 @@ spec:
   - service: Ignition
     servicePublishingStrategy:
       type: Route
-  - service: OVNSbDb
-    servicePublishingStrategy:
-      type: Route`
+`
 	hcp := &hyperv1.HostedControlPlane{}
 	if err := yaml.Unmarshal([]byte(rawHCP), hcp); err != nil {
 		t.Fatal(err)
