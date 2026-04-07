@@ -17108,6 +17108,810 @@ go test ./test/integration/gcp_test.go -v
 
 ---
 
+## Source: docs/content/how-to/gcp/create-gcp-hosted-cluster.md
+
+# Create a GCP Hosted Cluster
+
+This guide walks through creating a GCP hosted cluster using the infrastructure and IAM resources created in the previous steps.
+
+## Prerequisites
+
+- HyperShift operator installed on a GKE management cluster (Setup Management Cluster)
+- Network infrastructure created (Create GCP Infrastructure)
+- WIF/IAM resources created (Create GCP IAM Resources)
+- An RSA private key for service account token signing (generated during IAM setup)
+- A pull secret from console.redhat.com
+- An OpenShift release image
+
+## Create Hosted Cluster
+
+```bash
+hypershift create cluster gcp \
+  --name=<cluster-name> \
+  --namespace=<namespace> \
+  --release-image=<release-image> \
+  --pull-secret=<path-to-pull-secret> \
+  --project=<hosted-cluster-project-id> \
+  --region=<region> \
+  --network=<vpc-name> \
+  --subnet=<subnet-name> \
+  --private-service-connect-subnet=<psc-subnet> \
+  --endpoint-access=PublicAndPrivate \
+  --workload-identity-project-number=<project-number> \
+  --workload-identity-pool-id=<pool-id> \
+  --workload-identity-provider-id=<provider-id> \
+  --control-plane-service-account=<controlplane-sa-email> \
+  --node-pool-service-account=<nodepool-sa-email> \
+  --cloud-controller-service-account=<cloud-controller-sa-email> \
+  --storage-service-account=<storage-sa-email> \
+  --image-registry-service-account=<image-registry-sa-email> \
+  --service-account-signing-key-path=<path-to-sa-signer.key> \
+  --oidc-issuer-url=<oidc-issuer-url> \
+  --base-domain=<your-dns-domain> \
+  --external-dns-domain=<your-dns-domain> \
+  --node-pool-replicas=2 \
+  --feature-set=TechPreviewNoUpgrade \
+  --annotations=hypershift.openshift.io/capi-provider-gcp-image=<capg-image>
+```
+
+!!! note "CAPG Image Override (GCP-426)"
+
+    Until HyperShift's CAPI CRDs serve v1beta2, you must pin the CAPG image via the annotation above. Use the CAPG image from the release payload:
+
+    ```bash
+    oc adm release info <release-image> --image-for=cluster-api-provider-gcp
+    ```
+
+### Flags
+
+| Flag | Required | Description |
+|------|----------|-------------|
+| `--name` | Yes | Name for the hosted cluster |
+| `--namespace` | Yes | Namespace for the HostedCluster resource |
+| `--release-image` | Yes | OpenShift release image |
+| `--pull-secret` | Yes | Path to pull secret file |
+| `--project` | Yes | Hosted cluster GCP project ID |
+| `--region` | Yes | GCP region |
+| `--network` | Yes | VPC network name (from `create infra gcp` output) |
+| `--subnet` | Yes | Subnet for worker nodes (from `create infra gcp` output: `subnetName`) |
+| `--private-service-connect-subnet` | Yes | Subnet for PSC endpoints (same as `--subnet`) |
+| `--endpoint-access` | Yes | `Private` or `PublicAndPrivate` |
+| `--workload-identity-project-number` | Yes | GCP project number (from `create iam gcp` output) |
+| `--workload-identity-pool-id` | Yes | WIF pool ID (from `create iam gcp` output) |
+| `--workload-identity-provider-id` | Yes | WIF provider ID (from `create iam gcp` output) |
+| `--control-plane-service-account` | Yes | Control Plane Operator SA email |
+| `--node-pool-service-account` | Yes | NodePool CAPG SA email |
+| `--cloud-controller-service-account` | Yes | Cloud Controller Manager SA email |
+| `--storage-service-account` | Yes | GCP PD CSI Driver SA email |
+| `--image-registry-service-account` | Yes | Image Registry Operator SA email |
+| `--service-account-signing-key-path` | Yes | Path to RSA private key for OIDC token signing |
+| `--oidc-issuer-url` | Yes | OIDC issuer URL |
+| `--node-pool-replicas` | Yes | Number of worker nodes (default: 0) |
+| `--base-domain` | Yes | Base DNS domain for the hosted cluster |
+| `--external-dns-domain` | Yes | DNS domain for ExternalDNS-managed hostnames (API server, OAuth) |
+| `--feature-set` | Yes | Must be `TechPreviewNoUpgrade` for GCP platform |
+| `--machine-type` | No | GCP machine type (default: `n2-standard-4`) |
+| `--zone` | No | GCP zone for nodes (default: `{region}-a`) |
+| `--boot-image` | No | Override RHCOS boot image from release payload |
+
+## Monitor Cluster Creation
+
+Watch the hosted cluster status:
+
+```bash
+oc get hostedcluster -n <namespace> <cluster-name> -w
+```
+
+Wait for the `Available` condition to be `True`:
+
+```bash
+oc wait --for=condition=Available hostedcluster/<cluster-name> -n <namespace> --timeout=30m
+```
+
+## Access the Hosted Cluster
+
+Retrieve the kubeconfig:
+
+```bash
+oc get secret <cluster-name>-admin-kubeconfig -n <namespace> -o jsonpath='{.data.kubeconfig}' | base64 -d > hosted-kubeconfig
+```
+
+Verify access:
+
+```bash
+KUBECONFIG=hosted-kubeconfig oc get nodes
+KUBECONFIG=hosted-kubeconfig oc get clusterversion
+```
+
+## Destroy Hosted Cluster
+
+```bash
+hypershift destroy cluster gcp \
+  --name=<cluster-name> \
+  --namespace=<namespace>
+```
+
+After the cluster is destroyed, clean up the infrastructure and IAM resources:
+
+```bash
+hypershift destroy infra gcp \
+  --infra-id=<infra-id> \
+  --project-id=<hosted-cluster-project-id> \
+  --region=<region>
+
+hypershift destroy iam gcp \
+  --infra-id=<infra-id> \
+  --project-id=<hosted-cluster-project-id>
+```
+
+## Troubleshooting
+
+### Check Hosted Control Plane Pods
+
+```bash
+oc get pods -n <namespace>-<cluster-name>
+```
+
+### Check HostedCluster Conditions
+
+```bash
+oc get hostedcluster -n <namespace> <cluster-name> -o jsonpath='{range .status.conditions[*]}{.type}={.status} {.message}{"\n"}{end}'
+```
+
+### Check NodePool Status
+
+```bash
+oc get nodepool -n <namespace> -o yaml
+```
+
+### Common Issues
+
+- **WIF validation fails** — Ensure all service account emails match the output from `create iam gcp`
+- **PSC endpoint not available** — Verify the operator has WIF credentials and the PSC subnet exists
+- **Nodes not joining** — Check that the boot image is available and the hosted cluster project has compute API enabled
+
+
+---
+
+## Source: docs/content/how-to/gcp/create-gcp-iam.md
+
+# Create GCP IAM Resources
+
+This guide explains how to create Workload Identity Federation (WIF) resources for GCP hosted clusters using the `hypershift create iam gcp` command.
+
+## Prerequisites
+
+- The `hypershift` CLI built from the repository
+- `gcloud` CLI authenticated with IAM permissions in the hosted cluster GCP project
+- An RSA keypair for OIDC service account token signing
+
+## Generate RSA Keypair
+
+The hosted cluster's OIDC provider requires an RSA keypair for signing service account tokens:
+
+```bash
+# Generate 4096-bit RSA key in PKCS#1 format
+openssl genrsa -traditional -out sa-signer.key 4096
+openssl rsa -in sa-signer.key -pubout -out sa-signer.pub
+```
+
+Create a JWKS file from the public key:
+
+```bash
+# Extract modulus and compute key ID
+HEX_MODULUS=$(openssl rsa -in sa-signer.key -pubout -outform DER 2>/dev/null | \
+  openssl rsa -pubin -inform DER -text -noout 2>/dev/null | \
+  grep -A 100 "^Modulus:" | grep -v "^Modulus:" | grep -v "^Exponent:" | \
+  tr -d ' \n:' | sed 's/^00//')
+MODULUS=$(printf '%b' "$(echo "$HEX_MODULUS" | sed 's/../\\x&/g')" | base64 -w0 | tr '+/' '-_' | tr -d '=')
+KID=$(openssl rsa -in sa-signer.key -pubout -outform DER 2>/dev/null | \
+  openssl dgst -sha256 -binary | base64 -w0 | tr '+/' '-_' | tr -d '=')
+
+cat > jwks.json << EOF
+{
+  "keys": [
+    {
+      "kty": "RSA",
+      "alg": "RS256",
+      "use": "sig",
+      "kid": "${KID}",
+      "n": "${MODULUS}",
+      "e": "AQAB"
+    }
+  ]
+}
+EOF
+```
+
+## Create IAM Resources
+
+The `hypershift create iam gcp` command creates WIF resources in the hosted cluster project:
+
+- **Workload Identity Pool** — Container for workload identity providers
+- **OIDC Provider** — Links the hosted cluster's Kubernetes OIDC issuer to GCP IAM
+- **Service Accounts** — GCP service accounts for hosted cluster components:
+  - `controlplane` — Control Plane Operator (DNS admin, network admin)
+  - `nodepool` — CAPG controller (compute instance admin, network admin)
+  - `cloud-controller` — Cloud Controller Manager (load balancer admin, security admin, compute viewer)
+  - `storage` — GCP PD CSI Driver (storage admin, instance admin)
+  - `image-registry` — Image Registry Operator (storage admin)
+
+```bash
+hypershift create iam gcp \
+  --infra-id=<infra-id> \
+  --project-id=<hosted-cluster-project-id> \
+  --oidc-jwks-file=jwks.json
+```
+
+!!! warning "Reserved prefix"
+
+    The `--infra-id` value must not start with `gcp-` — GCP reserves this prefix for Workload Identity Pool IDs.
+
+### Flags
+
+| Flag | Required | Description |
+|------|----------|-------------|
+| `--infra-id` | Yes | Infrastructure ID (must match the value used for `create infra gcp`) |
+| `--project-id` | Yes | GCP project ID where WIF resources will be created |
+| `--oidc-jwks-file` | Yes | Path to JWKS JSON file containing the OIDC provider's public key |
+| `--oidc-issuer-url` | No | Custom OIDC issuer URL (defaults to `https://hypershift-<infra-id>-oidc`) |
+| `--output-file` | No | Path to save output JSON with WIF configuration |
+
+### Example
+
+```bash
+hypershift create iam gcp \
+  --infra-id=my-cluster \
+  --project-id=my-hc-project \
+  --oidc-jwks-file=jwks.json \
+  > iam-output.json
+```
+
+### Output
+
+The command outputs JSON with the WIF configuration:
+
+```json
+{
+  "projectId": "my-hc-project",
+  "projectNumber": "123456789",
+  "infraId": "my-cluster",
+  "workloadIdentityPool": {
+    "poolId": "my-cluster-wi-pool",
+    "providerId": "my-cluster-k8s-provider"
+  },
+  "serviceAccounts": {
+    "ctrlplane-op": "my-cluster-ctrlplane-op@my-hc-project.iam.gserviceaccount.com",
+    "nodepool-mgmt": "my-cluster-nodepool-mgmt@my-hc-project.iam.gserviceaccount.com",
+    "cloud-controller": "my-cluster-cloud-controller@my-hc-project.iam.gserviceaccount.com",
+    "gcp-pd-csi": "my-cluster-gcp-pd-csi@my-hc-project.iam.gserviceaccount.com",
+    "image-registry": "my-cluster-image-registry@my-hc-project.iam.gserviceaccount.com"
+  }
+}
+```
+
+Save this output — you will need the project number, pool/provider IDs, and service account emails when creating the hosted cluster.
+
+## Destroy IAM Resources
+
+To clean up WIF resources:
+
+```bash
+hypershift destroy iam gcp \
+  --infra-id=<infra-id> \
+  --project-id=<hosted-cluster-project-id>
+```
+
+## Next Steps
+
+- Create a GCP Hosted Cluster — Deploy your hosted cluster using the infrastructure and IAM resources
+
+
+---
+
+## Source: docs/content/how-to/gcp/create-gcp-infra.md
+
+# Create GCP Infrastructure
+
+This guide explains how to create network infrastructure for GCP hosted clusters using the `hypershift create infra gcp` command.
+
+## Prerequisites
+
+- The `hypershift` CLI built from the repository
+- `gcloud` CLI authenticated with permissions in the hosted cluster GCP project
+- A GCP project for the hosted cluster with required APIs enabled:
+
+```bash
+gcloud services enable \
+  compute.googleapis.com \
+  dns.googleapis.com \
+  iam.googleapis.com \
+  iamcredentials.googleapis.com \
+  cloudresourcemanager.googleapis.com \
+  --project=<hosted-cluster-project-id>
+```
+
+## Create Infrastructure
+
+The `hypershift create infra gcp` command creates network resources in the hosted cluster project:
+
+- **VPC** — Virtual Private Cloud network for worker nodes
+- **Subnet** — Subnet within the VPC
+- **Firewall rule** — Allows kubelet access
+- **Cloud Router + NAT** — Egress for worker nodes
+
+```bash
+hypershift create infra gcp \
+  --infra-id=<infra-id> \
+  --project-id=<hosted-cluster-project-id> \
+  --region=<region>
+```
+
+!!! warning "Infra ID constraints"
+
+    The `--infra-id` value must not start with `gcp-` (reserved by GCP for Workload Identity Pool IDs). Use the same `--infra-id` value across all `hypershift create` commands (`infra`, `iam`, `cluster`).
+
+### Flags
+
+| Flag | Required | Description |
+|------|----------|-------------|
+| `--infra-id` | Yes | Infrastructure ID used for naming GCP resources |
+| `--project-id` | Yes | GCP project ID where infrastructure will be created |
+| `--region` | Yes | GCP region (e.g., `us-central1`) |
+| `--vpc-cidr` | No | CIDR block for the subnet (default: `10.0.0.0/24`) |
+| `--output-file` | No | Path to save output JSON with resource names |
+
+### Example
+
+```bash
+hypershift create infra gcp \
+  --infra-id=my-cluster \
+  --project-id=my-hc-project \
+  --region=us-central1 \
+  > infra-output.json
+```
+
+### Output
+
+The command outputs JSON with the created resource names:
+
+```json
+{
+  "region": "us-central1",
+  "projectId": "my-hc-project",
+  "infraId": "my-cluster",
+  "networkName": "my-cluster-network",
+  "subnetName": "my-cluster-subnet",
+  "subnetCidr": "10.0.0.0/24",
+  "routerName": "my-cluster-router",
+  "natName": "my-cluster-nat",
+  "firewallRuleName": "my-cluster-allow-kubelet"
+}
+```
+
+Save this output — you will need the `networkName` and `subnetName` values when creating the hosted cluster.
+
+## Destroy Infrastructure
+
+To clean up infrastructure resources:
+
+```bash
+hypershift destroy infra gcp \
+  --infra-id=<infra-id> \
+  --project-id=<hosted-cluster-project-id> \
+  --region=<region>
+```
+
+## Next Steps
+
+- Create GCP IAM Resources — Create WIF pool and service accounts
+- Create a GCP Hosted Cluster — Deploy your hosted cluster
+
+
+---
+
+## Source: docs/content/how-to/gcp/e2e-gke-ci-job.md
+
+# GCP E2E CI Job (e2e-gke)
+
+## What is it
+
+The `e2e-gke` job is a presubmit CI job in the `openshift/hypershift` repo that validates GCP platform changes end-to-end. It creates two ephemeral GCP projects (control plane + hosted cluster), provisions a GKE Autopilot cluster, installs the HyperShift operator, creates a hosted cluster with WIF and PSC, validates it (TestCreateCluster), and tears everything down.
+
+## When does it trigger
+
+The job triggers on PRs to `openshift/hypershift` when files matching GCP-related code paths are modified:
+
+```
+api/hypershift/v1beta1/gcp.*
+hypershift-operator/controllers/.*/gcp.*
+control-plane-operator/controllers/.*/gcp.*
+cmd/cluster/gcp/.*
+cmd/nodepool/gcp/.*
+```
+
+It can also be triggered manually with `/test e2e-gke`.
+
+Current flags: `always_run: false`, `optional: true`, `skip_report: true` — meaning it won't block PRs and results aren't posted as GitHub status checks yet.
+
+## What happens if it fails
+
+- The job result is not reported on the PR (`skip_report: true`), so failures don't block merging
+- Post steps always run, including deprovision — GCP projects are cleaned up even if the test or the job is aborted
+- Artifacts (logs, junit, hypershift-dump) are uploaded to GCS for debugging
+- Concurrency is limited to 10 parallel runs via Boskos leases
+
+## CI Workflow
+
+The job uses the `hypershift-gcp-gke-e2e` workflow defined in openshift/release:
+
+**Pre phase:**
+
+1. `ipi-install-rbac` — Grant image-puller permissions
+2. `hypershift-gcp-gke-provision` — Create GCP projects, VPC, PSC subnet, GKE Autopilot cluster
+3. `hypershift-gcp-gke-prerequisites` — Install CRDs and cert-manager
+4. `hypershift-install` — Install HyperShift operator with GCP support
+5. `hypershift-gcp-control-plane-setup` — Configure operator WIF for PSC and ExternalDNS
+6. `hypershift-gcp-hosted-cluster-setup` — Create RSA keypair, WIF pool/SAs, HC network
+
+**Test phase:**
+
+7. `hypershift-gcp-run-e2e` — Run TestCreateCluster
+
+**Post phase:**
+
+8. `hypershift-dump` — Collect logs and artifacts
+9. `hypershift-gcp-gke-deprovision` — Delete GCP projects, GKE cluster, DNS records
+
+
+---
+
+## Source: docs/content/how-to/gcp/index.md
+
+# GCP
+
+This section provides guides for deploying HyperShift hosted clusters on Google Cloud Platform. GCP uses a GKE Autopilot cluster as the management platform and Workload Identity Federation (WIF) for tokenless authentication.
+
+!!! note "TechPreview in OCP 4.22"
+
+    GCP HostedClusters are available as a TechPreview feature in OpenShift Container Platform 4.22.
+
+## Deployment Model
+
+GCP hosted clusters use a **two-project model** that mirrors the production architecture:
+
+| Component | GCP Project | Purpose |
+|-----------|-------------|---------|
+| **Management Cluster** | Control Plane project | GKE Autopilot cluster running the HyperShift operator and hosted control planes |
+| **Hosted Cluster** | Hosted Cluster project | Worker nodes, WIF pool/provider, service accounts, VPC/subnet |
+
+**Key technologies:**
+
+- **GKE Autopilot** — Managed Kubernetes for the management cluster
+- **Workload Identity Federation (WIF)** — Tokenless authentication between Kubernetes service accounts and GCP service accounts
+- **Private Service Connect (PSC)** — Private connectivity between worker nodes and the hosted control plane API server
+
+## Guides
+
+- Setup Management Cluster — Install HyperShift operator on GKE with GCP support
+- Create GCP Infrastructure — Create network infrastructure (VPC, subnet)
+- Create GCP IAM Resources — Create WIF pool, OIDC provider, and service accounts
+- Create a GCP Hosted Cluster — Deploy your first hosted cluster
+- E2E GKE CI Job — CI job for validating GCP platform changes
+
+## Prerequisites
+
+Before getting started, you need:
+
+- A GCP project for the management cluster (control plane)
+- A GCP project for the hosted cluster (worker nodes and WIF)
+- The `gcloud` CLI installed and authenticated
+- The `hypershift` CLI built from the repository
+- A GCP service account with project-level permissions or appropriate roles
+- A DNS zone for hosted cluster endpoints (for ExternalDNS)
+
+## Additional Resources
+
+- GCP Workload Identity Federation
+- GKE Autopilot
+- Private Service Connect
+
+
+---
+
+## Source: docs/content/how-to/gcp/setup-management-cluster.md
+
+# Setup GCP Management Cluster
+
+This guide walks through installing the HyperShift operator on a GKE Autopilot cluster with GCP platform support.
+
+## Prerequisites
+
+- A GCP project for the management cluster
+- `gcloud` CLI installed and authenticated
+- `kubectl` or `oc` configured to access the GKE cluster
+- The `hypershift` CLI built from the repository
+- A pull secret from console.redhat.com
+
+## Enable Required APIs
+
+Enable the GCP APIs needed for the management cluster:
+
+```bash
+gcloud services enable \
+  container.googleapis.com \
+  compute.googleapis.com \
+  dns.googleapis.com \
+  cloudresourcemanager.googleapis.com \
+  --project=<control-plane-project-id>
+```
+
+## Create GKE Autopilot Cluster
+
+If you don't already have a GKE cluster, create one:
+
+```bash
+gcloud container clusters create-auto <cluster-name> \
+  --project=<control-plane-project-id> \
+  --region=<region> \
+  --release-channel=stable \
+  --quiet
+```
+
+Configure `kubectl` to use the new cluster:
+
+```bash
+gcloud container clusters get-credentials <cluster-name> \
+  --project=<control-plane-project-id> \
+  --region=<region>
+```
+
+## Create PSC Subnet
+
+Private Service Connect (PSC) provides private connectivity between the hosted cluster worker nodes and the control plane API server. Each hosted cluster requires its own dedicated PSC subnet, so you will need as many PSC subnets as the maximum number of hosted clusters you plan to run on the management cluster.
+
+The HyperShift operator automatically discovers available PSC subnets in the region and assigns an unused one to each new hosted cluster — you do not need to specify which subnet to use. Just make sure to pre-create enough subnets in the same VPC and region as the GKE cluster.
+
+Create PSC subnets in the same VPC as the GKE cluster:
+
+```bash
+# Get the VPC name used by the GKE cluster
+VPC_NAME=$(gcloud container clusters describe <cluster-name> \
+  --project=<control-plane-project-id> \
+  --region=<region> \
+  --format='value(networkConfig.network)' | xargs basename)
+
+# Create PSC subnets (one per hosted cluster you plan to support)
+# Use unique names and non-overlapping CIDR ranges for each subnet
+gcloud compute networks subnets create <psc-subnet-001> \
+  --project=<control-plane-project-id> \
+  --region=<region> \
+  --network="${VPC_NAME}" \
+  --range=10.3.0.0/24 \
+  --purpose=PRIVATE_SERVICE_CONNECT \
+  --quiet
+```
+
+## DNS Zone Configuration
+
+Before creating HostedClusters, you need to set up a Cloud DNS zone for ExternalDNS to manage API server and OAuth endpoint DNS records.
+
+You can either use an existing DNS zone in a shared project, or create a new one for testing.
+
+### Create a Cloud DNS Zone
+
+```bash
+DNS_PROJECT_ID=<dns-project-id>
+DNS_ZONE_NAME=<zone-name>
+DNS_DOMAIN=<your-dns-domain>
+
+# Enable DNS API if not already enabled
+gcloud services enable dns.googleapis.com --project="${DNS_PROJECT_ID}"
+
+# Create the DNS zone
+gcloud dns managed-zones create "${DNS_ZONE_NAME}" \
+  --project="${DNS_PROJECT_ID}" \
+  --dns-name="${DNS_DOMAIN}." \
+  --description="DNS zone for HyperShift hosted clusters" \
+  --visibility=public \
+  --quiet
+```
+
+!!! tip "Same Project for Dev/Test"
+
+    For development or testing, you can create the DNS zone in the same project as the management cluster (`DNS_PROJECT_ID=<control-plane-project-id>`). This avoids cross-project IAM configuration for ExternalDNS.
+
+### Delegate DNS from Parent Zone (Optional)
+
+If your DNS domain is a subdomain of an existing zone, delegate it by adding NS records to the parent zone:
+
+```bash
+PARENT_DNS_PROJECT=<parent-dns-project-id>
+PARENT_DNS_ZONE=<parent-zone-name>
+PARENT_DNS_DOMAIN=<parent-domain>
+SUBDOMAIN_NAME=<subdomain>
+
+# Get name servers from your new zone
+NS_SERVERS=$(gcloud dns managed-zones describe "${DNS_ZONE_NAME}" \
+  --project="${DNS_PROJECT_ID}" \
+  --format="value(nameServers)" | tr ';' '\n')
+
+# Add NS records to parent zone
+for ns in ${NS_SERVERS}; do
+  gcloud dns record-sets transaction start \
+    --zone="${PARENT_DNS_ZONE}" \
+    --project="${PARENT_DNS_PROJECT}" 2>/dev/null || true
+  gcloud dns record-sets transaction add "${ns}" \
+    --zone="${PARENT_DNS_ZONE}" \
+    --project="${PARENT_DNS_PROJECT}" \
+    --name="${SUBDOMAIN_NAME}.${PARENT_DNS_DOMAIN}." \
+    --type=NS \
+    --ttl=300
+  gcloud dns record-sets transaction execute \
+    --zone="${PARENT_DNS_ZONE}" \
+    --project="${PARENT_DNS_PROJECT}"
+done
+```
+
+### Create ExternalDNS Service Account
+
+Create a GCP service account for ExternalDNS with DNS admin permissions:
+
+```bash
+gcloud iam service-accounts create external-dns \
+  --project="${DNS_PROJECT_ID}" \
+  --display-name="ExternalDNS Service Account"
+
+gcloud projects add-iam-policy-binding "${DNS_PROJECT_ID}" \
+  --member="serviceAccount:external-dns@${DNS_PROJECT_ID}.iam.gserviceaccount.com" \
+  --role="roles/dns.admin" \
+  --quiet
+```
+
+Note the DNS project ID, DNS domain, and ExternalDNS service account email — you will need them when installing the operator and configuring ExternalDNS WIF.
+
+## Install Required CRDs
+
+GKE does not include OpenShift CRDs. Install the CRDs that the HyperShift operator expects:
+
+```bash
+# Prometheus operator CRDs
+oc apply -f https://raw.githubusercontent.com/prometheus-operator/prometheus-operator/main/example/prometheus-operator-crd/monitoring.coreos.com_servicemonitors.yaml
+oc apply -f https://raw.githubusercontent.com/prometheus-operator/prometheus-operator/main/example/prometheus-operator-crd/monitoring.coreos.com_prometheusrules.yaml
+oc apply -f https://raw.githubusercontent.com/prometheus-operator/prometheus-operator/main/example/prometheus-operator-crd/monitoring.coreos.com_podmonitors.yaml
+
+# OpenShift Route CRD
+oc apply -f https://raw.githubusercontent.com/openshift/api/6bababe9164ea6c78274fd79c94a3f951f8d5ab2/route/v1/zz_generated.crd-manifests/routes.crd.yaml
+
+# DNSEndpoint CRD (for ExternalDNS)
+oc apply -f https://raw.githubusercontent.com/kubernetes-sigs/external-dns/v0.15.0/docs/contributing/crd-source/crd-manifest.yaml
+```
+
+## Install HyperShift Operator
+
+Install the operator with GCP platform support:
+
+```bash
+hypershift install \
+  --tech-preview-no-upgrade \
+  --enable-conversion-webhook=false \
+  --external-dns-provider=google \
+  --external-dns-domain-filter=<your-dns-domain> \
+  --external-dns-google-project=<dns-project-id> \
+  --private-platform=GCP \
+  --gcp-project=<control-plane-project-id> \
+  --gcp-region=<region> \
+  --pull-secret=<path-to-pull-secret> \
+  --limit-crd-install=GCP \
+  --wait-until-available
+```
+
+!!! tip "Custom HyperShift Image"
+
+    Add `--hypershift-image quay.io/hypershift/hypershift:TAG` if using a custom operator image.
+
+## Configure Operator Workload Identity
+
+The HyperShift operator needs a GCP service account with PSC permissions to manage Private Service Connect resources.
+
+### Create GCP Service Account
+
+```bash
+CP_PROJECT_ID=<control-plane-project-id>
+
+gcloud iam service-accounts create hypershift-operator \
+  --project="${CP_PROJECT_ID}" \
+  --display-name="HyperShift Operator"
+```
+
+### Create Custom IAM Role
+
+Create a role with minimal PSC permissions:
+
+```bash
+gcloud iam roles create hypershiftPSCOperator \
+  --project="${CP_PROJECT_ID}" \
+  --title="HyperShift PSC Operator" \
+  --permissions=compute.forwardingRules.list,compute.forwardingRules.use,compute.serviceAttachments.create,compute.serviceAttachments.delete,compute.serviceAttachments.get,compute.serviceAttachments.list,compute.subnetworks.list,compute.subnetworks.use,compute.regionOperations.get
+```
+
+### Bind Role and Configure WIF
+
+```bash
+# Bind the role to the service account
+gcloud projects add-iam-policy-binding "${CP_PROJECT_ID}" \
+  --member="serviceAccount:hypershift-operator@${CP_PROJECT_ID}.iam.gserviceaccount.com" \
+  --role="projects/${CP_PROJECT_ID}/roles/hypershiftPSCOperator"
+
+# Configure Workload Identity binding
+gcloud iam service-accounts add-iam-policy-binding \
+  "hypershift-operator@${CP_PROJECT_ID}.iam.gserviceaccount.com" \
+  --project="${CP_PROJECT_ID}" \
+  --member="serviceAccount:${CP_PROJECT_ID}.svc.id.goog[hypershift/operator]" \
+  --role="roles/iam.workloadIdentityUser" \
+  --condition=None \
+  --quiet
+
+# Annotate the Kubernetes service account
+oc annotate serviceaccount operator -n hypershift \
+  iam.gke.io/gcp-service-account=hypershift-operator@${CP_PROJECT_ID}.iam.gserviceaccount.com \
+  --overwrite
+
+# Restart the operator to pick up WIF credentials
+oc rollout restart deployment operator -n hypershift
+oc rollout status deployment operator -n hypershift --timeout=120s
+```
+
+## Configure ExternalDNS Workload Identity
+
+ExternalDNS manages DNS records for hosted cluster API endpoints. It needs WIF access to impersonate the ExternalDNS GCP service account created in the DNS Zone Configuration section.
+
+```bash
+DNS_PROJECT_ID=<dns-project-id>
+EXTERNAL_DNS_SA=external-dns@${DNS_PROJECT_ID}.iam.gserviceaccount.com
+
+# Allow ExternalDNS K8s SA to impersonate the DNS service account
+# Cross-project WIF requires both workloadIdentityUser and serviceAccountTokenCreator
+gcloud iam service-accounts add-iam-policy-binding "${EXTERNAL_DNS_SA}" \
+  --role=roles/iam.workloadIdentityUser \
+  --member="serviceAccount:${CP_PROJECT_ID}.svc.id.goog[hypershift/external-dns]" \
+  --project="${DNS_PROJECT_ID}" \
+  --condition=None \
+  --quiet
+
+gcloud iam service-accounts add-iam-policy-binding "${EXTERNAL_DNS_SA}" \
+  --role=roles/iam.serviceAccountTokenCreator \
+  --member="serviceAccount:${CP_PROJECT_ID}.svc.id.goog[hypershift/external-dns]" \
+  --project="${DNS_PROJECT_ID}" \
+  --condition=None \
+  --quiet
+
+# Annotate ExternalDNS K8s SA and restart
+oc annotate serviceaccount external-dns -n hypershift \
+  iam.gke.io/gcp-service-account=${EXTERNAL_DNS_SA} \
+  --overwrite
+
+oc rollout restart deployment/external-dns -n hypershift
+oc rollout status deployment/external-dns -n hypershift --timeout=120s
+```
+
+## Verification
+
+Verify the operator and ExternalDNS are running:
+
+```bash
+oc get deployment -n hypershift
+oc get pods -n hypershift
+```
+
+## Next Steps
+
+- Create GCP Infrastructure — Create VPC and subnet for hosted clusters
+- Create GCP IAM Resources — Create WIF pool and service accounts
+
+
+---
+
 ## Source: docs/content/how-to/index.md
 
 ---
