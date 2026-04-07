@@ -11,6 +11,7 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 
 	"github.com/spf13/cobra"
+	crclient "sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 type DestroyNodePoolOptions struct {
@@ -47,6 +48,10 @@ func (o *DestroyNodePoolOptions) Run(ctx context.Context) error {
 		return err
 	}
 
+	return o.run(ctx, client)
+}
+
+func (o *DestroyNodePoolOptions) run(ctx context.Context, client crclient.Client) error {
 	nodePool := &hyperv1.NodePool{}
 	nodePool.Name = o.Name
 	nodePool.Namespace = o.Namespace
