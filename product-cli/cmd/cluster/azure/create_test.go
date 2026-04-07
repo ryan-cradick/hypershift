@@ -4,10 +4,11 @@ import (
 	"testing"
 
 	. "github.com/onsi/gomega"
-	"github.com/spf13/cobra"
 
 	"github.com/openshift/hypershift/cmd/cluster/core"
 	"github.com/openshift/hypershift/support/config"
+
+	"github.com/spf13/cobra"
 )
 
 func TestNewCreateCommand(t *testing.T) {

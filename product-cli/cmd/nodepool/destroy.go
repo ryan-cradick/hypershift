@@ -10,8 +10,9 @@ import (
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 
-	"github.com/spf13/cobra"
 	crclient "sigs.k8s.io/controller-runtime/pkg/client"
+
+	"github.com/spf13/cobra"
 )
 
 type DestroyNodePoolOptions struct {

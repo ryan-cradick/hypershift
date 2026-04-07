@@ -7,7 +7,6 @@ import (
 	"testing"
 
 	. "github.com/onsi/gomega"
-	"github.com/spf13/pflag"
 
 	hyperv1 "github.com/openshift/hypershift/api/hypershift/v1beta1"
 
@@ -17,6 +16,8 @@ import (
 	crclient "sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
+
+	"github.com/spf13/pflag"
 )
 
 func TestNewDestroyCommand(t *testing.T) {
@@ -41,7 +42,7 @@ func TestDestroyNodePoolOptionsRun(t *testing.T) {
 	t.Parallel()
 
 	scheme := runtime.NewScheme()
-	hyperv1.AddToScheme(scheme)
+	_ = hyperv1.AddToScheme(scheme)
 
 	tests := []struct {
 		name      string

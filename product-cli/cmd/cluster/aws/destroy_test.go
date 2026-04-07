@@ -5,9 +5,10 @@ import (
 	"testing"
 
 	. "github.com/onsi/gomega"
-	"github.com/spf13/pflag"
 
 	"github.com/openshift/hypershift/cmd/cluster/core"
+
+	"github.com/spf13/pflag"
 )
 
 func TestNewDestroyCommand(t *testing.T) {
