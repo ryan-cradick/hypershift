@@ -228,7 +228,7 @@ hypershift-api: $(CONTROLLER_GEN) $(CODE_GEN)
 	rm -rf ./api/hypershift/v1beta1/zz_generated.featuregated-crd-manifests
 	rm -rf ./api/hypershift/v1beta1/zz_generated.featuregated-crd-manifests.yaml
 	# Clean generated assets but preserve tests/ (envtest suites).
-	find cmd/install/assets/hypershift-operator/ -maxdepth 1 -not -name 'hypershift-operator' -not -name 'tests' -not -name 'doc.go' | xargs rm -rf
+	find cmd/install/assets/crds/hypershift-operator/ -maxdepth 1 -not -name 'hypershift-operator' -not -name 'tests' -not -name 'doc.go' | xargs rm -rf
 
 	$(CONTROLLER_GEN) object:headerFile="hack/boilerplate.go.txt" paths="./api/..."
 
@@ -238,73 +238,73 @@ hypershift-api: $(CONTROLLER_GEN) $(CODE_GEN)
 	(cd ./api && $(CODE_GEN) crd-manifest-merge --manifest-merge:payload-manifest-path ./hypershift/v1beta1/featuregates)
 
 	# Move final CRDs to the install folder.
-	mv ./api/hypershift/v1beta1/zz_generated.crd-manifests cmd/install/assets/hypershift-operator/
+	mv ./api/hypershift/v1beta1/zz_generated.crd-manifests cmd/install/assets/crds/hypershift-operator/
 
 	# Copy featuregate manifests alongside CRDs for envtest.
-	mkdir -p cmd/install/assets/hypershift-operator/payload-manifests/featuregates
-	cp ./api/hypershift/v1beta1/featuregates/*.yaml cmd/install/assets/hypershift-operator/payload-manifests/featuregates/
+	mkdir -p cmd/install/assets/crds/hypershift-operator/payload-manifests/featuregates
+	cp ./api/hypershift/v1beta1/featuregates/*.yaml cmd/install/assets/crds/hypershift-operator/payload-manifests/featuregates/
 
 	# Remove SelfManagedHA CRDs
-	rm -rf cmd/install/assets/hypershift-operator/zz_generated.crd-manifests/hostedclusters-SelfManagedHA-*.yaml
-	rm -rf cmd/install/assets/hypershift-operator/zz_generated.crd-manifests/hostedcontrolplanes-SelfManagedHA-*.yaml
+	rm -rf cmd/install/assets/crds/hypershift-operator/zz_generated.crd-manifests/hostedclusters-SelfManagedHA-*.yaml
+	rm -rf cmd/install/assets/crds/hypershift-operator/zz_generated.crd-manifests/hostedcontrolplanes-SelfManagedHA-*.yaml
 
 	# Generate additional CRDs.
-	$(CONTROLLER_GEN) $(CRD_OPTIONS) paths="./api/scheduling/..." output:crd:artifacts:config=cmd/install/assets/hypershift-operator
-	$(CONTROLLER_GEN) $(CRD_OPTIONS) paths="./api/certificates/..." output:crd:artifacts:config=cmd/install/assets/hypershift-operator
-	$(CONTROLLER_GEN) $(CRD_OPTIONS) paths="./api/auditlogpersistence/..." output:crd:artifacts:config=cmd/install/assets/hypershift-operator
+	$(CONTROLLER_GEN) $(CRD_OPTIONS) paths="./api/scheduling/..." output:crd:artifacts:config=cmd/install/assets/crds/hypershift-operator
+	$(CONTROLLER_GEN) $(CRD_OPTIONS) paths="./api/certificates/..." output:crd:artifacts:config=cmd/install/assets/crds/hypershift-operator
+	$(CONTROLLER_GEN) $(CRD_OPTIONS) paths="./api/auditlogpersistence/..." output:crd:artifacts:config=cmd/install/assets/crds/hypershift-operator
 
 .PHONY: cluster-api
 cluster-api: $(CONTROLLER_GEN)
-	rm -rf cmd/install/assets/cluster-api/*.yaml
-	$(CONTROLLER_GEN) $(CRD_OPTIONS) paths="./vendor/sigs.k8s.io/cluster-api/api/..." output:crd:artifacts:config=cmd/install/assets/cluster-api
-	$(CONTROLLER_GEN) $(CRD_OPTIONS) paths="./vendor/sigs.k8s.io/cluster-api/exp/api/..." output:crd:artifacts:config=cmd/install/assets/cluster-api
-	$(CONTROLLER_GEN) $(CRD_OPTIONS) paths="./vendor/sigs.k8s.io/cluster-api/exp/ipam/api/..." output:crd:artifacts:config=cmd/install/assets/cluster-api
-	$(CONTROLLER_GEN) $(CRD_OPTIONS) paths="./vendor/sigs.k8s.io/cluster-api/api/addons/..." output:crd:artifacts:config=cmd/install/assets/cluster-api
+	rm -rf cmd/install/assets/crds/cluster-api/*.yaml
+	$(CONTROLLER_GEN) $(CRD_OPTIONS) paths="./vendor/sigs.k8s.io/cluster-api/api/..." output:crd:artifacts:config=cmd/install/assets/crds/cluster-api
+	$(CONTROLLER_GEN) $(CRD_OPTIONS) paths="./vendor/sigs.k8s.io/cluster-api/exp/api/..." output:crd:artifacts:config=cmd/install/assets/crds/cluster-api
+	$(CONTROLLER_GEN) $(CRD_OPTIONS) paths="./vendor/sigs.k8s.io/cluster-api/exp/ipam/api/..." output:crd:artifacts:config=cmd/install/assets/crds/cluster-api
+	$(CONTROLLER_GEN) $(CRD_OPTIONS) paths="./vendor/sigs.k8s.io/cluster-api/api/addons/..." output:crd:artifacts:config=cmd/install/assets/crds/cluster-api
 
 .PHONY: cluster-api-provider-aws
 cluster-api-provider-aws: $(CONTROLLER_GEN)
-	rm -rf cmd/install/assets/cluster-api-provider-aws/*.yaml
-	$(CONTROLLER_GEN) $(CRD_OPTIONS) paths="./vendor/sigs.k8s.io/cluster-api-provider-aws/v2/api/..." output:crd:artifacts:config=cmd/install/assets/cluster-api-provider-aws
-	$(CONTROLLER_GEN) $(CRD_OPTIONS) paths="./vendor/sigs.k8s.io/cluster-api-provider-aws/v2/exp/api/..." output:crd:artifacts:config=cmd/install/assets/cluster-api-provider-aws
+	rm -rf cmd/install/assets/crds/cluster-api-provider-aws/*.yaml
+	$(CONTROLLER_GEN) $(CRD_OPTIONS) paths="./vendor/sigs.k8s.io/cluster-api-provider-aws/v2/api/..." output:crd:artifacts:config=cmd/install/assets/crds/cluster-api-provider-aws
+	$(CONTROLLER_GEN) $(CRD_OPTIONS) paths="./vendor/sigs.k8s.io/cluster-api-provider-aws/v2/exp/api/..." output:crd:artifacts:config=cmd/install/assets/crds/cluster-api-provider-aws
 
 # remove ROSA CRDs
-	rm -rf cmd/install/assets/cluster-api-provider-aws/infrastructure.cluster.x-k8s.io_rosa*.yaml
+	rm -rf cmd/install/assets/crds/cluster-api-provider-aws/infrastructure.cluster.x-k8s.io_rosa*.yaml
 # remove EKS CRDs
-	rm -rf cmd/install/assets/cluster-api-provider-aws/infrastructure.cluster.x-k8s.io_awsmanaged*.yaml
-	rm -rf cmd/install/assets/cluster-api-provider-aws/infrastructure.cluster.x-k8s.io_awsfargateprofiles.yaml
+	rm -rf cmd/install/assets/crds/cluster-api-provider-aws/infrastructure.cluster.x-k8s.io_awsmanaged*.yaml
+	rm -rf cmd/install/assets/crds/cluster-api-provider-aws/infrastructure.cluster.x-k8s.io_awsfargateprofiles.yaml
 
 .PHONY: cluster-api-provider-gcp
 cluster-api-provider-gcp: $(CONTROLLER_GEN)
-	rm -rf cmd/install/assets/cluster-api-provider-gcp/*.yaml
-	$(CONTROLLER_GEN) $(CRD_OPTIONS) paths="./vendor/sigs.k8s.io/cluster-api-provider-gcp/api/..." output:crd:artifacts:config=cmd/install/assets/cluster-api-provider-gcp
+	rm -rf cmd/install/assets/crds/cluster-api-provider-gcp/*.yaml
+	$(CONTROLLER_GEN) $(CRD_OPTIONS) paths="./vendor/sigs.k8s.io/cluster-api-provider-gcp/api/..." output:crd:artifacts:config=cmd/install/assets/crds/cluster-api-provider-gcp
 
 .PHONY: cluster-api-provider-ibmcloud
 cluster-api-provider-ibmcloud: $(CONTROLLER_GEN)
-	rm -rf cmd/install/assets/cluster-api-provider-ibmcloud/*.yaml
-	$(CONTROLLER_GEN) $(CRD_OPTIONS) paths="./vendor/sigs.k8s.io/cluster-api-provider-ibmcloud/api/..." output:crd:artifacts:config=cmd/install/assets/cluster-api-provider-ibmcloud
+	rm -rf cmd/install/assets/crds/cluster-api-provider-ibmcloud/*.yaml
+	$(CONTROLLER_GEN) $(CRD_OPTIONS) paths="./vendor/sigs.k8s.io/cluster-api-provider-ibmcloud/api/..." output:crd:artifacts:config=cmd/install/assets/crds/cluster-api-provider-ibmcloud
 
 .PHONY: cluster-api-provider-kubevirt
 cluster-api-provider-kubevirt: $(CONTROLLER_GEN)
-	rm -rf cmd/install/assets/cluster-api-provider-kubevirt/*.yaml
-	$(CONTROLLER_GEN) $(CRD_OPTIONS) paths="./vendor/sigs.k8s.io/cluster-api-provider-kubevirt/api/v1alpha1" output:crd:artifacts:config=cmd/install/assets/cluster-api-provider-kubevirt
+	rm -rf cmd/install/assets/crds/cluster-api-provider-kubevirt/*.yaml
+	$(CONTROLLER_GEN) $(CRD_OPTIONS) paths="./vendor/sigs.k8s.io/cluster-api-provider-kubevirt/api/v1alpha1" output:crd:artifacts:config=cmd/install/assets/crds/cluster-api-provider-kubevirt
 
 .PHONY: cluster-api-provider-agent
 cluster-api-provider-agent: $(CONTROLLER_GEN)
-	rm -rf cmd/install/assets/cluster-api-provider-agent/*.yaml
-	$(CONTROLLER_GEN) $(CRD_OPTIONS) paths="./vendor/github.com/openshift/cluster-api-provider-agent/api/..." output:crd:artifacts:config=cmd/install/assets/cluster-api-provider-agent
+	rm -rf cmd/install/assets/crds/cluster-api-provider-agent/*.yaml
+	$(CONTROLLER_GEN) $(CRD_OPTIONS) paths="./vendor/github.com/openshift/cluster-api-provider-agent/api/..." output:crd:artifacts:config=cmd/install/assets/crds/cluster-api-provider-agent
 
 .PHONY: cluster-api-provider-azure
 cluster-api-provider-azure: $(CONTROLLER_GEN)
-	rm -rf cmd/install/assets/cluster-api-provider-azure/*.yaml
-	$(CONTROLLER_GEN) $(CRD_OPTIONS) paths="./vendor/sigs.k8s.io/cluster-api-provider-azure/api/..." output:crd:artifacts:config=cmd/install/assets/cluster-api-provider-azure
+	rm -rf cmd/install/assets/crds/cluster-api-provider-azure/*.yaml
+	$(CONTROLLER_GEN) $(CRD_OPTIONS) paths="./vendor/sigs.k8s.io/cluster-api-provider-azure/api/..." output:crd:artifacts:config=cmd/install/assets/crds/cluster-api-provider-azure
 # remove CAPZ managed CRDS
-	rm -rf cmd/install/assets/cluster-api-provider-azure/infrastructure.cluster.x-k8s.io_azuremanaged*.yaml
+	rm -rf cmd/install/assets/crds/cluster-api-provider-azure/infrastructure.cluster.x-k8s.io_azuremanaged*.yaml
 
 .PHONY: cluster-api-provider-openstack
 cluster-api-provider-openstack: $(CONTROLLER_GEN)
-	rm -rf cmd/install/assets/cluster-api-provider-openstack/*.yaml
-	$(CONTROLLER_GEN) $(CRD_OPTIONS) paths="./vendor/sigs.k8s.io/cluster-api-provider-openstack/api/..." output:crd:artifacts:config=cmd/install/assets/cluster-api-provider-openstack
-	$(CONTROLLER_GEN) $(CRD_OPTIONS) paths="./vendor/github.com/k-orc/openstack-resource-controller/..." output:crd:artifacts:config=cmd/install/assets/cluster-api-provider-openstack
+	rm -rf cmd/install/assets/crds/cluster-api-provider-openstack/*.yaml
+	$(CONTROLLER_GEN) $(CRD_OPTIONS) paths="./vendor/sigs.k8s.io/cluster-api-provider-openstack/api/..." output:crd:artifacts:config=cmd/install/assets/crds/cluster-api-provider-openstack
+	$(CONTROLLER_GEN) $(CRD_OPTIONS) paths="./vendor/github.com/k-orc/openstack-resource-controller/..." output:crd:artifacts:config=cmd/install/assets/crds/cluster-api-provider-openstack
 
 .PHONY: api-docs
 api-docs: $(GENAPIDOCS)

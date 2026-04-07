@@ -1,8 +1,13 @@
 package assets
 
 import (
+	"bytes"
+	"embed"
 	_ "embed"
 	"fmt"
+	"io"
+	"io/fs"
+	"path/filepath"
 	"slices"
 	"strings"
 	"time"
@@ -28,6 +33,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/intstr"
+	"k8s.io/apimachinery/pkg/util/yaml"
 	"k8s.io/utils/ptr"
 
 	"github.com/google/uuid"
@@ -2381,4 +2387,55 @@ func (o HyperShiftExtensionAPIServerAuthenticationReaderRoleBinding) Build() *rb
 			},
 		},
 	}
+}
+
+//go:embed recordingrules/*
+var recordingRules embed.FS
+
+// prometheusRuleSpec is meant to return all prometheus rule groups in a PrometheusRuleSpec.
+// At the moment we have only one.
+func prometheusRuleSpec() prometheusoperatorv1.PrometheusRuleSpec {
+	var spec prometheusoperatorv1.PrometheusRuleSpec
+	err := fs.WalkDir(recordingRules, ".", func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			panic(err)
+		}
+		if filepath.Ext(path) != ".yaml" {
+			return nil
+		}
+		spec = getPrometheusRuleSpec(recordingRules, path)
+		return nil
+	})
+	if err != nil {
+		panic(err)
+	}
+
+	return spec
+}
+
+// getPrometheusRuleSpec unmarshals a prometheusoperatorv1.PrometheusRuleSpec from file.
+func getPrometheusRuleSpec(files embed.FS, file string) prometheusoperatorv1.PrometheusRuleSpec {
+	var prometheusRuleSpec prometheusoperatorv1.PrometheusRuleSpec
+	if err := yaml.NewYAMLOrJSONDecoder(bytes.NewReader(getContents(files, file)), 100).Decode(&prometheusRuleSpec); err != nil {
+		panic(err)
+	}
+
+	return prometheusRuleSpec
+}
+
+func getContents(fs embed.FS, file string) []byte {
+	f, err := fs.Open(file)
+	if err != nil {
+		panic(err)
+	}
+	defer func() {
+		if err := f.Close(); err != nil {
+			panic(err)
+		}
+	}()
+	b, err := io.ReadAll(f)
+	if err != nil {
+		panic(err)
+	}
+	return b
 }

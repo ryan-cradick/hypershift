@@ -9,7 +9,7 @@ import (
 	. "github.com/onsi/gomega"
 
 	hyperv1 "github.com/openshift/hypershift/api/hypershift/v1beta1"
-	"github.com/openshift/hypershift/cmd/install/assets"
+	crdassets "github.com/openshift/hypershift/cmd/install/assets/crds"
 	"github.com/openshift/hypershift/hypershift-operator/controllers/sharedingress"
 
 	corev1 "k8s.io/api/core/v1"
@@ -444,7 +444,7 @@ func TestSetupCRDs(t *testing.T) {
 
 			// Validate that all wanted platform CRDs are present.
 			for platform := range wantedPlatforms {
-				wantedCAPICRDsPerPlatform, err := fs.ReadDir(assets.CRDS, "cluster-api-provider-"+strings.ToLower(platform))
+				wantedCAPICRDsPerPlatform, err := fs.ReadDir(crdassets.CRDS, "cluster-api-provider-"+strings.ToLower(platform))
 				if err == nil {
 					var yamlFiles []fs.DirEntry
 					for _, file := range wantedCAPICRDsPerPlatform {

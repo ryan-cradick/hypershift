@@ -26,6 +26,7 @@ import (
 
 	hyperv1 "github.com/openshift/hypershift/api/hypershift/v1beta1"
 	"github.com/openshift/hypershift/cmd/install/assets"
+	crdassets "github.com/openshift/hypershift/cmd/install/assets/crds"
 	"github.com/openshift/hypershift/cmd/util"
 	"github.com/openshift/hypershift/hypershift-operator/controllers/sharedingress"
 	hyperapi "github.com/openshift/hypershift/support/api"
@@ -802,7 +803,7 @@ func setupCRDs(ctx context.Context, client crclient.Client, opts Options, operat
 
 	var crds []crclient.Object
 	crds = append(
-		crds, assets.CustomResourceDefinitions(
+		crds, crdassets.CustomResourceDefinitions(
 			func(path string, crd *apiextensionsv1.CustomResourceDefinition) bool {
 				// Skip non-CRD files (featuregate manifests, envtest suites).
 				if strings.Contains(path, "payload-manifests") || strings.Contains(path, "tests/") {
