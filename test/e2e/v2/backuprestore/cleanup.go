@@ -75,7 +75,7 @@ func BreakHostedClusterPreservingMachines(testCtx *internal.TestContext, logger 
 	// so we strip finalizers again and retry with the standard timeout.
 	if err := deleteControlPlaneNamespace(testCtx, 1*time.Minute); err != nil {
 		if !wait.Interrupted(err) {
-			return fmt.Errorf("failed to delete control plane namespace: %w", err)
+			return fmt.Errorf("failed to delete control plane namespace after initial timeout: %w", err)
 		}
 		logger.Info("Control plane namespace did not delete within initial timeout, removing finalizers again and retrying")
 		if err := removeNamespaceObjectFinalizers(testCtx, testCtx.ControlPlaneNamespace, logger); err != nil {
@@ -89,7 +89,7 @@ func BreakHostedClusterPreservingMachines(testCtx *internal.TestContext, logger 
 	// Step 7: Delete hosted cluster namespace
 	if err := deleteHostedClusterNamespace(testCtx, 1*time.Minute); err != nil {
 		if !wait.Interrupted(err) {
-			return fmt.Errorf("failed to delete hosted cluster namespace: %w", err)
+			return fmt.Errorf("failed to delete hosted cluster namespace after initial timeout: %w", err)
 		}
 		logger.Info("Hosted cluster namespace did not delete within initial timeout, removing finalizers again and retrying")
 		if err := removeNamespaceObjectFinalizers(testCtx, testCtx.ClusterNamespace, logger); err != nil {
@@ -343,6 +343,12 @@ func deleteNamespace(testCtx *internal.TestContext, namespace string, gracePerio
 				return true, nil
 			}
 			if apierrors.IsTooManyRequests(err) || apierrors.IsServerTimeout(err) || apierrors.IsTimeout(err) {
+				return false, nil
+			}
+			// Client-side rate limiter returns this when the context deadline
+			// is too close. Treat it as transient so the poll loop can time out
+			// naturally and be caught by wait.Interrupted.
+			if strings.Contains(err.Error(), "would exceed context deadline") {
 				return false, nil
 			}
 			return false, fmt.Errorf("unexpected error checking namespace deletion: %w", err)
