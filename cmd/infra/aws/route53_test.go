@@ -6,6 +6,8 @@ import (
 	"strings"
 	"testing"
 
+	. "github.com/onsi/gomega"
+
 	"github.com/openshift/hypershift/support/awsapi"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -13,6 +15,7 @@ import (
 	route53types "github.com/aws/aws-sdk-go-v2/service/route53/types"
 
 	"github.com/go-logr/logr"
+	"github.com/go-logr/logr/funcr"
 	"go.uber.org/mock/gomock"
 )
 
@@ -125,6 +128,7 @@ func TestLookupPublicZone(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			g := NewWithT(t)
 			ctrl := gomock.NewController(t)
 			mockR53 := awsapi.NewMockROUTE53API(ctrl)
 			tt.setupMock(mockR53)
@@ -134,20 +138,24 @@ func TestLookupPublicZone(t *testing.T) {
 				ctx = tt.useCtx()
 			}
 
+			var logBuf strings.Builder
+			logger := funcr.New(func(prefix, args string) {
+				logBuf.WriteString(prefix + args + "\n")
+			}, funcr.Options{})
+
 			o := &CreateInfraOptions{BaseDomain: tt.baseDomain, RedactBaseDomain: tt.redact}
-			id, err := o.LookupPublicZone(ctx, logr.Discard(), mockR53)
+			id, err := o.LookupPublicZone(ctx, logger, mockR53)
 
 			if tt.expectError {
-				if err == nil {
-					t.Fatal("expected error, got nil")
-				}
+				g.Expect(err).To(HaveOccurred())
 			} else {
-				if err != nil {
-					t.Errorf("expected no error, got: %v", err)
-				}
-				if id != tt.expectID {
-					t.Errorf("expected zone ID %q, got %q", tt.expectID, id)
-				}
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(id).To(Equal(tt.expectID))
+			}
+
+			if tt.redact {
+				g.Expect(err.Error()).NotTo(ContainSubstring(tt.baseDomain))
+				g.Expect(logBuf.String()).NotTo(ContainSubstring(tt.baseDomain))
 			}
 		})
 	}
@@ -403,9 +411,10 @@ func TestCleanupPublicZone(t *testing.T) {
 
 func TestDestroyDNS(t *testing.T) {
 	tests := []struct {
-		name           string
-		setupMock      func(*awsapi.MockROUTE53API)
-		expectErrCount int
+		name          string
+		setupMock     func(*awsapi.MockROUTE53API)
+		expectError   bool
+		errorContains string
 	}{
 		{
 			name: "When zone exists but wildcard record is absent it should return no errors",
@@ -418,7 +427,6 @@ func TestDestroyDNS(t *testing.T) {
 						ResourceRecordSets: []route53types.ResourceRecordSet{},
 					}, nil)
 			},
-			expectErrCount: 0,
 		},
 		{
 			name: "When CleanupPublicZone fails it should return the error",
@@ -437,12 +445,14 @@ func TestDestroyDNS(t *testing.T) {
 				m.EXPECT().ChangeResourceRecordSets(gomock.Any(), gomock.Any(), gomock.Any()).
 					Return(nil, errors.New("permission denied"))
 			},
-			expectErrCount: 1,
+			expectError:   true,
+			errorContains: "failed to delete wildcard record",
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			g := NewWithT(t)
 			ctrl := gomock.NewController(t)
 			mockR53 := awsapi.NewMockROUTE53API(ctrl)
 			tt.setupMock(mockR53)
@@ -454,14 +464,13 @@ func TestDestroyDNS(t *testing.T) {
 			}
 			errs := o.DestroyDNS(context.Background(), mockR53)
 
-			nonNilErrs := 0
-			for _, e := range errs {
-				if e != nil {
-					nonNilErrs++
+			if tt.expectError {
+				g.Expect(errs).To(ContainElement(HaveOccurred()))
+				if tt.errorContains != "" {
+					g.Expect(errs).To(ContainElement(MatchError(ContainSubstring(tt.errorContains))))
 				}
-			}
-			if nonNilErrs != tt.expectErrCount {
-				t.Errorf("expected %d errors, got %d: %v", tt.expectErrCount, nonNilErrs, errs)
+			} else {
+				g.Expect(errs).To(HaveEach(BeNil()))
 			}
 		})
 	}
@@ -469,11 +478,12 @@ func TestDestroyDNS(t *testing.T) {
 
 func TestDestroyPrivateZones(t *testing.T) {
 	tests := []struct {
-		name           string
-		setupListMock  func(*awsapi.MockROUTE53API)
-		setupRecsMock  func(*awsapi.MockROUTE53API)
-		expectErrCount int
-		useCtx         func() context.Context
+		name          string
+		setupListMock func(*awsapi.MockROUTE53API)
+		setupRecsMock func(*awsapi.MockROUTE53API)
+		expectError   bool
+		errorContains string
+		useCtx        func() context.Context
 	}{
 		{
 			name: "When private zones exist it should delete them and return no errors",
@@ -497,7 +507,6 @@ func TestDestroyPrivateZones(t *testing.T) {
 				m.EXPECT().DeleteHostedZone(gomock.Any(), gomock.Any(), gomock.Any()).
 					Return(&route53.DeleteHostedZoneOutput{}, nil)
 			},
-			expectErrCount: 0,
 		},
 		{
 			name: "When no private zones exist it should return no errors",
@@ -507,8 +516,7 @@ func TestDestroyPrivateZones(t *testing.T) {
 						HostedZoneSummaries: []route53types.HostedZoneSummary{},
 					}, nil)
 			},
-			setupRecsMock:  func(_ *awsapi.MockROUTE53API) {},
-			expectErrCount: 0,
+			setupRecsMock: func(_ *awsapi.MockROUTE53API) {},
 		},
 		{
 			name:   "When ListHostedZonesByVPC fails it should return the error",
@@ -517,8 +525,9 @@ func TestDestroyPrivateZones(t *testing.T) {
 				m.EXPECT().ListHostedZonesByVPC(gomock.Any(), gomock.Any(), gomock.Any()).
 					Return(nil, errors.New("list failed"))
 			},
-			setupRecsMock:  func(_ *awsapi.MockROUTE53API) {},
-			expectErrCount: 1,
+			setupRecsMock: func(_ *awsapi.MockROUTE53API) {},
+			expectError:   true,
+			errorContains: "failed to list hosted zones for vpc",
 		},
 		{
 			name: "When deleteZone fails it should return the error",
@@ -537,12 +546,14 @@ func TestDestroyPrivateZones(t *testing.T) {
 				m.EXPECT().ListResourceRecordSets(gomock.Any(), gomock.Any(), gomock.Any()).
 					Return(nil, errors.New("records error"))
 			},
-			expectErrCount: 1,
+			expectError:   true,
+			errorContains: "failed to delete private hosted zones for vpc",
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			g := NewWithT(t)
 			ctrl := gomock.NewController(t)
 			mockListClient := awsapi.NewMockROUTE53API(ctrl)
 			mockRecsClient := awsapi.NewMockROUTE53API(ctrl)
@@ -557,8 +568,13 @@ func TestDestroyPrivateZones(t *testing.T) {
 			o := &DestroyInfraOptions{Region: "us-east-1", Log: logr.Discard()}
 			errs := o.DestroyPrivateZones(ctx, mockListClient, mockRecsClient, testVPCID)
 
-			if len(errs) != tt.expectErrCount {
-				t.Errorf("expected %d errors, got %d: %v", tt.expectErrCount, len(errs), errs)
+			if tt.expectError {
+				g.Expect(errs).To(ContainElement(HaveOccurred()))
+				if tt.errorContains != "" {
+					g.Expect(errs).To(ContainElement(MatchError(ContainSubstring(tt.errorContains))))
+				}
+			} else {
+				g.Expect(errs).To(BeEmpty())
 			}
 		})
 	}

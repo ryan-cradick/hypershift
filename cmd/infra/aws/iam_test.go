@@ -3,8 +3,9 @@ package aws
 import (
 	"context"
 	"errors"
-	"strings"
 	"testing"
+
+	. "github.com/onsi/gomega"
 
 	"github.com/openshift/hypershift/support/awsapi"
 
@@ -53,13 +54,15 @@ func TestCreateRole(t *testing.T) {
 		{
 			name: "When role does not exist it should create it and return new ARN",
 			setupMock: func(m *awsapi.MockIAMAPI) {
-				m.EXPECT().GetRole(gomock.Any(), gomock.Any(), gomock.Any()).
-					Return(nil, noSuchEntity())
-				m.EXPECT().CreateRole(gomock.Any(), gomock.Any(), gomock.Any()).
-					Return(&iam.CreateRoleOutput{Role: &iamtypes.Role{
-						RoleName: aws.String(roleName),
-						Arn:      aws.String(roleARN),
-					}}, nil)
+				gomock.InOrder(
+					m.EXPECT().GetRole(gomock.Any(), gomock.Any(), gomock.Any()).
+						Return(nil, noSuchEntity()),
+					m.EXPECT().CreateRole(gomock.Any(), gomock.Any(), gomock.Any()).
+						Return(&iam.CreateRoleOutput{Role: &iamtypes.Role{
+							RoleName: aws.String(roleName),
+							Arn:      aws.String(roleARN),
+						}}, nil),
+				)
 			},
 			expectARN: roleARN,
 		},
@@ -75,10 +78,12 @@ func TestCreateRole(t *testing.T) {
 		{
 			name: "When CreateRole fails it should return the error",
 			setupMock: func(m *awsapi.MockIAMAPI) {
-				m.EXPECT().GetRole(gomock.Any(), gomock.Any(), gomock.Any()).
-					Return(nil, noSuchEntity())
-				m.EXPECT().CreateRole(gomock.Any(), gomock.Any(), gomock.Any()).
-					Return(nil, errors.New("create failed"))
+				gomock.InOrder(
+					m.EXPECT().GetRole(gomock.Any(), gomock.Any(), gomock.Any()).
+						Return(nil, noSuchEntity()),
+					m.EXPECT().CreateRole(gomock.Any(), gomock.Any(), gomock.Any()).
+						Return(nil, errors.New("create failed")),
+				)
 			},
 			expectError:   true,
 			errorContains: "create failed",
@@ -87,6 +92,7 @@ func TestCreateRole(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			g := NewWithT(t)
 			ctrl := gomock.NewController(t)
 			mockIAM := awsapi.NewMockIAMAPI(ctrl)
 			tt.setupMock(mockIAM)
@@ -95,19 +101,13 @@ func TestCreateRole(t *testing.T) {
 			arn, err := o.CreateRole(context.Background(), mockIAM, logr.Discard())
 
 			if tt.expectError {
-				if err == nil {
-					t.Fatal("expected error, got nil")
-				}
-				if tt.errorContains != "" && !strings.Contains(err.Error(), tt.errorContains) {
-					t.Errorf("expected error containing %q, got: %v", tt.errorContains, err)
+				g.Expect(err).To(HaveOccurred())
+				if tt.errorContains != "" {
+					g.Expect(err.Error()).To(ContainSubstring(tt.errorContains))
 				}
 			} else {
-				if err != nil {
-					t.Errorf("expected no error, got: %v", err)
-				}
-				if arn != tt.expectARN {
-					t.Errorf("expected ARN %q, got %q", tt.expectARN, arn)
-				}
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(arn).To(Equal(tt.expectARN))
 			}
 		})
 	}
@@ -130,48 +130,56 @@ func TestCreateRoleWithInlinePolicy(t *testing.T) {
 		{
 			name: "When role does not exist it should create it and put inline policy",
 			setupMock: func(m *awsapi.MockIAMAPI) {
-				m.EXPECT().GetRole(gomock.Any(), gomock.Any(), gomock.Any()).
-					Return(nil, noSuchEntity())
-				m.EXPECT().CreateRole(gomock.Any(), gomock.Any(), gomock.Any()).
-					Return(&iam.CreateRoleOutput{Role: testRole(roleName)}, nil)
-				m.EXPECT().PutRolePolicy(gomock.Any(), gomock.Any(), gomock.Any()).
-					Return(&iam.PutRolePolicyOutput{}, nil)
+				gomock.InOrder(
+					m.EXPECT().GetRole(gomock.Any(), gomock.Any(), gomock.Any()).
+						Return(nil, noSuchEntity()),
+					m.EXPECT().CreateRole(gomock.Any(), gomock.Any(), gomock.Any()).
+						Return(&iam.CreateRoleOutput{Role: testRole(roleName)}, nil),
+					m.EXPECT().PutRolePolicy(gomock.Any(), gomock.Any(), gomock.Any()).
+						Return(&iam.PutRolePolicyOutput{}, nil),
+				)
 			},
-			expectARN: "arn:aws:iam::123456789012:role/" + roleName,
+			expectARN: roleARN,
 		},
 		{
 			name: "When role already exists it should skip creation and still put inline policy",
 			setupMock: func(m *awsapi.MockIAMAPI) {
-				m.EXPECT().GetRole(gomock.Any(), gomock.Any(), gomock.Any()).
-					Return(&iam.GetRoleOutput{Role: testRole(roleName)}, nil)
-				m.EXPECT().PutRolePolicy(gomock.Any(), gomock.Any(), gomock.Any()).
-					Return(&iam.PutRolePolicyOutput{}, nil)
+				gomock.InOrder(
+					m.EXPECT().GetRole(gomock.Any(), gomock.Any(), gomock.Any()).
+						Return(&iam.GetRoleOutput{Role: testRole(roleName)}, nil),
+					m.EXPECT().PutRolePolicy(gomock.Any(), gomock.Any(), gomock.Any()).
+						Return(&iam.PutRolePolicyOutput{}, nil),
+				)
 			},
-			expectARN: "arn:aws:iam::123456789012:role/" + roleName,
+			expectARN: roleARN,
 		},
 		{
 			name:        "When AllowAssume is true it should also put the assume role inline policy",
 			allowAssume: true,
 			setupMock: func(m *awsapi.MockIAMAPI) {
-				m.EXPECT().GetRole(gomock.Any(), gomock.Any(), gomock.Any()).
-					Return(nil, noSuchEntity())
-				m.EXPECT().CreateRole(gomock.Any(), gomock.Any(), gomock.Any()).
-					Return(&iam.CreateRoleOutput{Role: testRole(roleName)}, nil)
-				// inline permissions policy + assume policy
-				m.EXPECT().PutRolePolicy(gomock.Any(), gomock.Any(), gomock.Any()).
-					Return(&iam.PutRolePolicyOutput{}, nil).Times(2)
+				gomock.InOrder(
+					m.EXPECT().GetRole(gomock.Any(), gomock.Any(), gomock.Any()).
+						Return(nil, noSuchEntity()),
+					m.EXPECT().CreateRole(gomock.Any(), gomock.Any(), gomock.Any()).
+						Return(&iam.CreateRoleOutput{Role: testRole(roleName)}, nil),
+					// inline permissions policy + assume policy
+					m.EXPECT().PutRolePolicy(gomock.Any(), gomock.Any(), gomock.Any()).
+						Return(&iam.PutRolePolicyOutput{}, nil).Times(2),
+				)
 			},
-			expectARN: "arn:aws:iam::123456789012:role/" + roleName,
+			expectARN: roleARN,
 		},
 		{
 			name: "When PutRolePolicy fails it should return the error",
 			setupMock: func(m *awsapi.MockIAMAPI) {
-				m.EXPECT().GetRole(gomock.Any(), gomock.Any(), gomock.Any()).
-					Return(nil, noSuchEntity())
-				m.EXPECT().CreateRole(gomock.Any(), gomock.Any(), gomock.Any()).
-					Return(&iam.CreateRoleOutput{Role: testRole(roleName)}, nil)
-				m.EXPECT().PutRolePolicy(gomock.Any(), gomock.Any(), gomock.Any()).
-					Return(nil, errors.New("put policy failed"))
+				gomock.InOrder(
+					m.EXPECT().GetRole(gomock.Any(), gomock.Any(), gomock.Any()).
+						Return(nil, noSuchEntity()),
+					m.EXPECT().CreateRole(gomock.Any(), gomock.Any(), gomock.Any()).
+						Return(&iam.CreateRoleOutput{Role: testRole(roleName)}, nil),
+					m.EXPECT().PutRolePolicy(gomock.Any(), gomock.Any(), gomock.Any()).
+						Return(nil, errors.New("put policy failed")),
+				)
 			},
 			expectError:   true,
 			errorContains: "put policy failed",
@@ -180,6 +188,7 @@ func TestCreateRoleWithInlinePolicy(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			g := NewWithT(t)
 			ctrl := gomock.NewController(t)
 			mockIAM := awsapi.NewMockIAMAPI(ctrl)
 			tt.setupMock(mockIAM)
@@ -193,19 +202,13 @@ func TestCreateRoleWithInlinePolicy(t *testing.T) {
 			arn, err := o.CreateRoleWithInlinePolicy(context.Background(), mockIAM, logr.Discard())
 
 			if tt.expectError {
-				if err == nil {
-					t.Fatal("expected error, got nil")
-				}
-				if tt.errorContains != "" && !strings.Contains(err.Error(), tt.errorContains) {
-					t.Errorf("expected error containing %q, got: %v", tt.errorContains, err)
+				g.Expect(err).To(HaveOccurred())
+				if tt.errorContains != "" {
+					g.Expect(err.Error()).To(ContainSubstring(tt.errorContains))
 				}
 			} else {
-				if err != nil {
-					t.Errorf("expected no error, got: %v", err)
-				}
-				if arn != tt.expectARN {
-					t.Errorf("expected ARN %q, got %q", tt.expectARN, arn)
-				}
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(arn).To(Equal(tt.expectARN))
 			}
 		})
 	}
@@ -228,12 +231,14 @@ func TestCreateRoleWithManagedPolicy(t *testing.T) {
 		{
 			name: "When role does not exist it should create it and attach managed policy",
 			setupMock: func(m *awsapi.MockIAMAPI) {
-				m.EXPECT().GetRole(gomock.Any(), gomock.Any(), gomock.Any()).
-					Return(nil, noSuchEntity())
-				m.EXPECT().CreateRole(gomock.Any(), gomock.Any(), gomock.Any()).
-					Return(&iam.CreateRoleOutput{Role: testRole(roleName)}, nil)
-				m.EXPECT().AttachRolePolicy(gomock.Any(), gomock.Any(), gomock.Any()).
-					Return(&iam.AttachRolePolicyOutput{}, nil)
+				gomock.InOrder(
+					m.EXPECT().GetRole(gomock.Any(), gomock.Any(), gomock.Any()).
+						Return(nil, noSuchEntity()),
+					m.EXPECT().CreateRole(gomock.Any(), gomock.Any(), gomock.Any()).
+						Return(&iam.CreateRoleOutput{Role: testRole(roleName)}, nil),
+					m.EXPECT().AttachRolePolicy(gomock.Any(), gomock.Any(), gomock.Any()).
+						Return(&iam.AttachRolePolicyOutput{}, nil),
+				)
 			},
 			expectARN: "arn:aws:iam::123456789012:role/" + roleName,
 		},
@@ -241,36 +246,42 @@ func TestCreateRoleWithManagedPolicy(t *testing.T) {
 			name:        "When AllowAssume is true it should also put the assume role inline policy",
 			allowAssume: true,
 			setupMock: func(m *awsapi.MockIAMAPI) {
-				m.EXPECT().GetRole(gomock.Any(), gomock.Any(), gomock.Any()).
-					Return(nil, noSuchEntity())
-				m.EXPECT().CreateRole(gomock.Any(), gomock.Any(), gomock.Any()).
-					Return(&iam.CreateRoleOutput{Role: testRole(roleName)}, nil)
-				m.EXPECT().AttachRolePolicy(gomock.Any(), gomock.Any(), gomock.Any()).
-					Return(&iam.AttachRolePolicyOutput{}, nil)
-				m.EXPECT().PutRolePolicy(gomock.Any(), gomock.Any(), gomock.Any()).
-					Return(&iam.PutRolePolicyOutput{}, nil)
+				gomock.InOrder(
+					m.EXPECT().GetRole(gomock.Any(), gomock.Any(), gomock.Any()).
+						Return(nil, noSuchEntity()),
+					m.EXPECT().CreateRole(gomock.Any(), gomock.Any(), gomock.Any()).
+						Return(&iam.CreateRoleOutput{Role: testRole(roleName)}, nil),
+					m.EXPECT().AttachRolePolicy(gomock.Any(), gomock.Any(), gomock.Any()).
+						Return(&iam.AttachRolePolicyOutput{}, nil),
+					m.EXPECT().PutRolePolicy(gomock.Any(), gomock.Any(), gomock.Any()).
+						Return(&iam.PutRolePolicyOutput{}, nil),
+				)
 			},
 			expectARN: "arn:aws:iam::123456789012:role/" + roleName,
 		},
 		{
 			name: "When role already exists it should skip creation and attach managed policy",
 			setupMock: func(m *awsapi.MockIAMAPI) {
-				m.EXPECT().GetRole(gomock.Any(), gomock.Any(), gomock.Any()).
-					Return(&iam.GetRoleOutput{Role: testRole(roleName)}, nil)
-				m.EXPECT().AttachRolePolicy(gomock.Any(), gomock.Any(), gomock.Any()).
-					Return(&iam.AttachRolePolicyOutput{}, nil)
+				gomock.InOrder(
+					m.EXPECT().GetRole(gomock.Any(), gomock.Any(), gomock.Any()).
+						Return(&iam.GetRoleOutput{Role: testRole(roleName)}, nil),
+					m.EXPECT().AttachRolePolicy(gomock.Any(), gomock.Any(), gomock.Any()).
+						Return(&iam.AttachRolePolicyOutput{}, nil),
+				)
 			},
 			expectARN: "arn:aws:iam::123456789012:role/" + roleName,
 		},
 		{
 			name: "When AttachRolePolicy fails it should return the error",
 			setupMock: func(m *awsapi.MockIAMAPI) {
-				m.EXPECT().GetRole(gomock.Any(), gomock.Any(), gomock.Any()).
-					Return(nil, noSuchEntity())
-				m.EXPECT().CreateRole(gomock.Any(), gomock.Any(), gomock.Any()).
-					Return(&iam.CreateRoleOutput{Role: testRole(roleName)}, nil)
-				m.EXPECT().AttachRolePolicy(gomock.Any(), gomock.Any(), gomock.Any()).
-					Return(nil, errors.New("attach failed"))
+				gomock.InOrder(
+					m.EXPECT().GetRole(gomock.Any(), gomock.Any(), gomock.Any()).
+						Return(nil, noSuchEntity()),
+					m.EXPECT().CreateRole(gomock.Any(), gomock.Any(), gomock.Any()).
+						Return(&iam.CreateRoleOutput{Role: testRole(roleName)}, nil),
+					m.EXPECT().AttachRolePolicy(gomock.Any(), gomock.Any(), gomock.Any()).
+						Return(nil, errors.New("attach failed")),
+				)
 			},
 			expectError:   true,
 			errorContains: "attach failed",
@@ -279,6 +290,7 @@ func TestCreateRoleWithManagedPolicy(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			g := NewWithT(t)
 			ctrl := gomock.NewController(t)
 			mockIAM := awsapi.NewMockIAMAPI(ctrl)
 			tt.setupMock(mockIAM)
@@ -291,19 +303,13 @@ func TestCreateRoleWithManagedPolicy(t *testing.T) {
 			arn, err := o.CreateRoleWithManagedPolicy(context.Background(), mockIAM, managedPolicyARN, logr.Discard())
 
 			if tt.expectError {
-				if err == nil {
-					t.Fatal("expected error, got nil")
-				}
-				if tt.errorContains != "" && !strings.Contains(err.Error(), tt.errorContains) {
-					t.Errorf("expected error containing %q, got: %v", tt.errorContains, err)
+				g.Expect(err).To(HaveOccurred())
+				if tt.errorContains != "" {
+					g.Expect(err.Error()).To(ContainSubstring(tt.errorContains))
 				}
 			} else {
-				if err != nil {
-					t.Errorf("expected no error, got: %v", err)
-				}
-				if arn != tt.expectARN {
-					t.Errorf("expected ARN %q, got %q", tt.expectARN, arn)
-				}
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(arn).To(Equal(tt.expectARN))
 			}
 		})
 	}
@@ -328,32 +334,36 @@ func TestCreateOIDCProvider(t *testing.T) {
 		{
 			name: "When no existing provider matches it should create and return the new ARN",
 			setupMock: func(m *awsapi.MockIAMAPI) {
-				m.EXPECT().ListOpenIDConnectProviders(gomock.Any(), gomock.Any(), gomock.Any()).
-					Return(&iam.ListOpenIDConnectProvidersOutput{
-						OpenIDConnectProviderList: []iamtypes.OpenIDConnectProviderListEntry{},
-					}, nil)
-				m.EXPECT().CreateOpenIDConnectProvider(gomock.Any(), gomock.Any(), gomock.Any()).
-					Return(&iam.CreateOpenIDConnectProviderOutput{
-						OpenIDConnectProviderArn: aws.String(newARN),
-					}, nil)
+				gomock.InOrder(
+					m.EXPECT().ListOpenIDConnectProviders(gomock.Any(), gomock.Any(), gomock.Any()).
+						Return(&iam.ListOpenIDConnectProvidersOutput{
+							OpenIDConnectProviderList: []iamtypes.OpenIDConnectProviderListEntry{},
+						}, nil),
+					m.EXPECT().CreateOpenIDConnectProvider(gomock.Any(), gomock.Any(), gomock.Any()).
+						Return(&iam.CreateOpenIDConnectProviderOutput{
+							OpenIDConnectProviderArn: aws.String(newARN),
+						}, nil),
+				)
 			},
 			expectARN: newARN,
 		},
 		{
 			name: "When an existing provider matches the issuer URL it should delete it then create a new one",
 			setupMock: func(m *awsapi.MockIAMAPI) {
-				m.EXPECT().ListOpenIDConnectProviders(gomock.Any(), gomock.Any(), gomock.Any()).
-					Return(&iam.ListOpenIDConnectProvidersOutput{
-						OpenIDConnectProviderList: []iamtypes.OpenIDConnectProviderListEntry{
-							{Arn: aws.String(matchingARN)},
-						},
-					}, nil)
-				m.EXPECT().DeleteOpenIDConnectProvider(gomock.Any(), gomock.Any(), gomock.Any()).
-					Return(&iam.DeleteOpenIDConnectProviderOutput{}, nil)
-				m.EXPECT().CreateOpenIDConnectProvider(gomock.Any(), gomock.Any(), gomock.Any()).
-					Return(&iam.CreateOpenIDConnectProviderOutput{
-						OpenIDConnectProviderArn: aws.String(newARN),
-					}, nil)
+				gomock.InOrder(
+					m.EXPECT().ListOpenIDConnectProviders(gomock.Any(), gomock.Any(), gomock.Any()).
+						Return(&iam.ListOpenIDConnectProvidersOutput{
+							OpenIDConnectProviderList: []iamtypes.OpenIDConnectProviderListEntry{
+								{Arn: aws.String(matchingARN)},
+							},
+						}, nil),
+					m.EXPECT().DeleteOpenIDConnectProvider(gomock.Any(), gomock.Any(), gomock.Any()).
+						Return(&iam.DeleteOpenIDConnectProviderOutput{}, nil),
+					m.EXPECT().CreateOpenIDConnectProvider(gomock.Any(), gomock.Any(), gomock.Any()).
+						Return(&iam.CreateOpenIDConnectProviderOutput{
+							OpenIDConnectProviderArn: aws.String(newARN),
+						}, nil),
+				)
 			},
 			expectARN: newARN,
 		},
@@ -369,14 +379,16 @@ func TestCreateOIDCProvider(t *testing.T) {
 		{
 			name: "When DeleteOpenIDConnectProvider fails it should return the error",
 			setupMock: func(m *awsapi.MockIAMAPI) {
-				m.EXPECT().ListOpenIDConnectProviders(gomock.Any(), gomock.Any(), gomock.Any()).
-					Return(&iam.ListOpenIDConnectProvidersOutput{
-						OpenIDConnectProviderList: []iamtypes.OpenIDConnectProviderListEntry{
-							{Arn: aws.String(matchingARN)},
-						},
-					}, nil)
-				m.EXPECT().DeleteOpenIDConnectProvider(gomock.Any(), gomock.Any(), gomock.Any()).
-					Return(nil, errors.New("delete failed"))
+				gomock.InOrder(
+					m.EXPECT().ListOpenIDConnectProviders(gomock.Any(), gomock.Any(), gomock.Any()).
+						Return(&iam.ListOpenIDConnectProvidersOutput{
+							OpenIDConnectProviderList: []iamtypes.OpenIDConnectProviderListEntry{
+								{Arn: aws.String(matchingARN)},
+							},
+						}, nil),
+					m.EXPECT().DeleteOpenIDConnectProvider(gomock.Any(), gomock.Any(), gomock.Any()).
+						Return(nil, errors.New("delete failed")),
+				)
 			},
 			expectError:   true,
 			errorContains: "delete failed",
@@ -384,10 +396,12 @@ func TestCreateOIDCProvider(t *testing.T) {
 		{
 			name: "When CreateOpenIDConnectProvider fails it should return the error",
 			setupMock: func(m *awsapi.MockIAMAPI) {
-				m.EXPECT().ListOpenIDConnectProviders(gomock.Any(), gomock.Any(), gomock.Any()).
-					Return(&iam.ListOpenIDConnectProvidersOutput{}, nil)
-				m.EXPECT().CreateOpenIDConnectProvider(gomock.Any(), gomock.Any(), gomock.Any()).
-					Return(nil, errors.New("create failed"))
+				gomock.InOrder(
+					m.EXPECT().ListOpenIDConnectProviders(gomock.Any(), gomock.Any(), gomock.Any()).
+						Return(&iam.ListOpenIDConnectProvidersOutput{}, nil),
+					m.EXPECT().CreateOpenIDConnectProvider(gomock.Any(), gomock.Any(), gomock.Any()).
+						Return(nil, errors.New("create failed")),
+				)
 			},
 			expectError:   true,
 			errorContains: "create failed",
@@ -396,6 +410,7 @@ func TestCreateOIDCProvider(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			g := NewWithT(t)
 			ctrl := gomock.NewController(t)
 			mockIAM := awsapi.NewMockIAMAPI(ctrl)
 			tt.setupMock(mockIAM)
@@ -404,19 +419,13 @@ func TestCreateOIDCProvider(t *testing.T) {
 			arn, err := o.CreateOIDCProvider(context.Background(), mockIAM, logr.Discard())
 
 			if tt.expectError {
-				if err == nil {
-					t.Fatal("expected error, got nil")
-				}
-				if tt.errorContains != "" && !strings.Contains(err.Error(), tt.errorContains) {
-					t.Errorf("expected error containing %q, got: %v", tt.errorContains, err)
+				g.Expect(err).To(HaveOccurred())
+				if tt.errorContains != "" {
+					g.Expect(err.Error()).To(ContainSubstring(tt.errorContains))
 				}
 			} else {
-				if err != nil {
-					t.Errorf("expected no error, got: %v", err)
-				}
-				if arn != tt.expectARN {
-					t.Errorf("expected ARN %q, got %q", tt.expectARN, arn)
-				}
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(arn).To(Equal(tt.expectARN))
 			}
 		})
 	}
@@ -438,80 +447,88 @@ func TestCreateWorkerInstanceProfile(t *testing.T) {
 		{
 			name: "When role and profile do not exist it should create both and put inline policy",
 			setupMock: func(m *awsapi.MockIAMAPI) {
-				// existingRole → not found → CreateRole
-				m.EXPECT().GetRole(gomock.Any(), gomock.Any(), gomock.Any()).
-					Return(nil, noSuchEntity())
-				m.EXPECT().CreateRole(gomock.Any(), gomock.Any(), gomock.Any()).
-					Return(&iam.CreateRoleOutput{Role: testRole(standardRoleName)}, nil)
-				// existingInstanceProfile → not found → CreateInstanceProfile
-				m.EXPECT().GetInstanceProfile(gomock.Any(), gomock.Any(), gomock.Any()).
-					Return(nil, noSuchEntity())
-				m.EXPECT().CreateInstanceProfile(gomock.Any(), gomock.Any(), gomock.Any()).
-					Return(&iam.CreateInstanceProfileOutput{
-						InstanceProfile: testInstanceProfile(profileName), // no roles yet
-					}, nil)
-				// role not yet in profile → AddRoleToInstanceProfile
-				m.EXPECT().AddRoleToInstanceProfile(gomock.Any(), gomock.Any(), gomock.Any()).
-					Return(&iam.AddRoleToInstanceProfileOutput{}, nil)
-				// existingRolePolicy → not found → PutRolePolicy
-				m.EXPECT().GetRolePolicy(gomock.Any(), gomock.Any(), gomock.Any()).
-					Return(nil, noSuchEntity())
-				m.EXPECT().PutRolePolicy(gomock.Any(), gomock.Any(), gomock.Any()).
-					Return(&iam.PutRolePolicyOutput{}, nil)
+				gomock.InOrder(
+					// existingRole → not found → CreateRole
+					m.EXPECT().GetRole(gomock.Any(), gomock.Any(), gomock.Any()).
+						Return(nil, noSuchEntity()),
+					m.EXPECT().CreateRole(gomock.Any(), gomock.Any(), gomock.Any()).
+						Return(&iam.CreateRoleOutput{Role: testRole(standardRoleName)}, nil),
+					// existingInstanceProfile → not found → CreateInstanceProfile
+					m.EXPECT().GetInstanceProfile(gomock.Any(), gomock.Any(), gomock.Any()).
+						Return(nil, noSuchEntity()),
+					m.EXPECT().CreateInstanceProfile(gomock.Any(), gomock.Any(), gomock.Any()).
+						Return(&iam.CreateInstanceProfileOutput{
+							InstanceProfile: testInstanceProfile(profileName), // no roles yet
+						}, nil),
+					// role not yet in profile → AddRoleToInstanceProfile
+					m.EXPECT().AddRoleToInstanceProfile(gomock.Any(), gomock.Any(), gomock.Any()).
+						Return(&iam.AddRoleToInstanceProfileOutput{}, nil),
+					// existingRolePolicy → not found → PutRolePolicy
+					m.EXPECT().GetRolePolicy(gomock.Any(), gomock.Any(), gomock.Any()).
+						Return(nil, noSuchEntity()),
+					m.EXPECT().PutRolePolicy(gomock.Any(), gomock.Any(), gomock.Any()).
+						Return(&iam.PutRolePolicyOutput{}, nil),
+				)
 			},
 		},
 		{
 			name: "When role and profile already exist and role is already in profile it should skip all creates",
 			setupMock: func(m *awsapi.MockIAMAPI) {
-				// role exists
-				m.EXPECT().GetRole(gomock.Any(), gomock.Any(), gomock.Any()).
-					Return(&iam.GetRoleOutput{Role: testRole(standardRoleName)}, nil)
-				// profile exists and already has the role
-				m.EXPECT().GetInstanceProfile(gomock.Any(), gomock.Any(), gomock.Any()).
-					Return(&iam.GetInstanceProfileOutput{
-						InstanceProfile: testInstanceProfile(profileName,
-							iamtypes.Role{RoleName: aws.String(standardRoleName)},
-						),
-					}, nil)
-				// policy exists
-				m.EXPECT().GetRolePolicy(gomock.Any(), gomock.Any(), gomock.Any()).
-					Return(&iam.GetRolePolicyOutput{
-						PolicyName: aws.String(policyName),
-						RoleName:   aws.String(standardRoleName),
-					}, nil)
+				gomock.InOrder(
+					// role exists
+					m.EXPECT().GetRole(gomock.Any(), gomock.Any(), gomock.Any()).
+						Return(&iam.GetRoleOutput{Role: testRole(standardRoleName)}, nil),
+					// profile exists and already has the role
+					m.EXPECT().GetInstanceProfile(gomock.Any(), gomock.Any(), gomock.Any()).
+						Return(&iam.GetInstanceProfileOutput{
+							InstanceProfile: testInstanceProfile(profileName,
+								iamtypes.Role{RoleName: aws.String(standardRoleName)},
+							),
+						}, nil),
+					// policy exists
+					m.EXPECT().GetRolePolicy(gomock.Any(), gomock.Any(), gomock.Any()).
+						Return(&iam.GetRolePolicyOutput{
+							PolicyName: aws.String(policyName),
+							RoleName:   aws.String(standardRoleName),
+						}, nil),
+				)
 			},
 		},
 		{
 			name:                   "When UseROSAManagedPolicies is true it should use ROSA role name and attach managed policy",
 			useROSAManagedPolicies: true,
 			setupMock: func(m *awsapi.MockIAMAPI) {
-				// existingRole for ROSA role name → not found → CreateRole
-				m.EXPECT().GetRole(gomock.Any(), gomock.Any(), gomock.Any()).
-					Return(nil, noSuchEntity())
-				m.EXPECT().CreateRole(gomock.Any(), gomock.Any(), gomock.Any()).
-					Return(&iam.CreateRoleOutput{Role: testRole(rosaRoleName)}, nil)
-				// existingInstanceProfile → not found → CreateInstanceProfile
-				m.EXPECT().GetInstanceProfile(gomock.Any(), gomock.Any(), gomock.Any()).
-					Return(nil, noSuchEntity())
-				m.EXPECT().CreateInstanceProfile(gomock.Any(), gomock.Any(), gomock.Any()).
-					Return(&iam.CreateInstanceProfileOutput{
-						InstanceProfile: testInstanceProfile(profileName),
-					}, nil)
-				// role not in profile → AddRoleToInstanceProfile
-				m.EXPECT().AddRoleToInstanceProfile(gomock.Any(), gomock.Any(), gomock.Any()).
-					Return(&iam.AddRoleToInstanceProfileOutput{}, nil)
-				// ROSA path: AttachRolePolicy instead of PutRolePolicy
-				m.EXPECT().AttachRolePolicy(gomock.Any(), gomock.Any(), gomock.Any()).
-					Return(&iam.AttachRolePolicyOutput{}, nil)
+				gomock.InOrder(
+					// existingRole for ROSA role name → not found → CreateRole
+					m.EXPECT().GetRole(gomock.Any(), gomock.Any(), gomock.Any()).
+						Return(nil, noSuchEntity()),
+					m.EXPECT().CreateRole(gomock.Any(), gomock.Any(), gomock.Any()).
+						Return(&iam.CreateRoleOutput{Role: testRole(rosaRoleName)}, nil),
+					// existingInstanceProfile → not found → CreateInstanceProfile
+					m.EXPECT().GetInstanceProfile(gomock.Any(), gomock.Any(), gomock.Any()).
+						Return(nil, noSuchEntity()),
+					m.EXPECT().CreateInstanceProfile(gomock.Any(), gomock.Any(), gomock.Any()).
+						Return(&iam.CreateInstanceProfileOutput{
+							InstanceProfile: testInstanceProfile(profileName),
+						}, nil),
+					// role not in profile → AddRoleToInstanceProfile
+					m.EXPECT().AddRoleToInstanceProfile(gomock.Any(), gomock.Any(), gomock.Any()).
+						Return(&iam.AddRoleToInstanceProfileOutput{}, nil),
+					// ROSA path: AttachRolePolicy instead of PutRolePolicy
+					m.EXPECT().AttachRolePolicy(gomock.Any(), gomock.Any(), gomock.Any()).
+						Return(&iam.AttachRolePolicyOutput{}, nil),
+				)
 			},
 		},
 		{
 			name: "When CreateRole fails it should return the error",
 			setupMock: func(m *awsapi.MockIAMAPI) {
-				m.EXPECT().GetRole(gomock.Any(), gomock.Any(), gomock.Any()).
-					Return(nil, noSuchEntity())
-				m.EXPECT().CreateRole(gomock.Any(), gomock.Any(), gomock.Any()).
-					Return(nil, errors.New("create role failed"))
+				gomock.InOrder(
+					m.EXPECT().GetRole(gomock.Any(), gomock.Any(), gomock.Any()).
+						Return(nil, noSuchEntity()),
+					m.EXPECT().CreateRole(gomock.Any(), gomock.Any(), gomock.Any()).
+						Return(nil, errors.New("create role failed")),
+				)
 			},
 			expectError:   true,
 			errorContains: "cannot create worker role",
@@ -519,14 +536,16 @@ func TestCreateWorkerInstanceProfile(t *testing.T) {
 		{
 			name: "When CreateInstanceProfile fails it should return the error",
 			setupMock: func(m *awsapi.MockIAMAPI) {
-				m.EXPECT().GetRole(gomock.Any(), gomock.Any(), gomock.Any()).
-					Return(nil, noSuchEntity())
-				m.EXPECT().CreateRole(gomock.Any(), gomock.Any(), gomock.Any()).
-					Return(&iam.CreateRoleOutput{Role: testRole(standardRoleName)}, nil)
-				m.EXPECT().GetInstanceProfile(gomock.Any(), gomock.Any(), gomock.Any()).
-					Return(nil, noSuchEntity())
-				m.EXPECT().CreateInstanceProfile(gomock.Any(), gomock.Any(), gomock.Any()).
-					Return(nil, errors.New("create profile failed"))
+				gomock.InOrder(
+					m.EXPECT().GetRole(gomock.Any(), gomock.Any(), gomock.Any()).
+						Return(nil, noSuchEntity()),
+					m.EXPECT().CreateRole(gomock.Any(), gomock.Any(), gomock.Any()).
+						Return(&iam.CreateRoleOutput{Role: testRole(standardRoleName)}, nil),
+					m.EXPECT().GetInstanceProfile(gomock.Any(), gomock.Any(), gomock.Any()).
+						Return(nil, noSuchEntity()),
+					m.EXPECT().CreateInstanceProfile(gomock.Any(), gomock.Any(), gomock.Any()).
+						Return(nil, errors.New("create profile failed")),
+				)
 			},
 			expectError:   true,
 			errorContains: "cannot create instance profile",
@@ -535,6 +554,7 @@ func TestCreateWorkerInstanceProfile(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			g := NewWithT(t)
 			ctrl := gomock.NewController(t)
 			mockIAM := awsapi.NewMockIAMAPI(ctrl)
 			tt.setupMock(mockIAM)
@@ -546,16 +566,12 @@ func TestCreateWorkerInstanceProfile(t *testing.T) {
 			err := o.CreateWorkerInstanceProfile(context.Background(), mockIAM, profileName, logr.Discard())
 
 			if tt.expectError {
-				if err == nil {
-					t.Fatal("expected error, got nil")
-				}
-				if tt.errorContains != "" && !strings.Contains(err.Error(), tt.errorContains) {
-					t.Errorf("expected error containing %q, got: %v", tt.errorContains, err)
+				g.Expect(err).To(HaveOccurred())
+				if tt.errorContains != "" {
+					g.Expect(err.Error()).To(ContainSubstring(tt.errorContains))
 				}
 			} else {
-				if err != nil {
-					t.Errorf("expected no error, got: %v", err)
-				}
+				g.Expect(err).NotTo(HaveOccurred())
 			}
 		})
 	}
@@ -581,10 +597,9 @@ func TestEnsureHostedZonePrefix(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			g := NewWithT(t)
 			got := ensureHostedZonePrefix(tt.input)
-			if got != tt.expectOut {
-				t.Errorf("expected %q, got %q", tt.expectOut, got)
-			}
+			g.Expect(got).To(Equal(tt.expectOut))
 		})
 	}
 }

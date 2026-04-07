@@ -3,8 +3,9 @@ package aws
 import (
 	"context"
 	"errors"
-	"strings"
 	"testing"
+
+	. "github.com/onsi/gomega"
 
 	"github.com/openshift/hypershift/support/awsapi"
 
@@ -61,7 +62,7 @@ func TestDestroyOIDCRole(t *testing.T) {
 		{
 			name: "When the role does not exist it should return false without error",
 			setupMock: func(m *awsapi.MockIAMAPI) {
-				m.EXPECT().GetRole(gomock.Any(), gomock.Any(), gomock.Any()).
+				m.EXPECT().GetRole(gomock.Any(), &iam.GetRoleInput{RoleName: aws.String(roleName)}, gomock.Any()).
 					Return(nil, noSuchEntity())
 			},
 			expectRemoved: false,
@@ -69,59 +70,65 @@ func TestDestroyOIDCRole(t *testing.T) {
 		{
 			name: "When role exists with no policies it should delete it and return true",
 			setupMock: func(m *awsapi.MockIAMAPI) {
-				m.EXPECT().GetRole(gomock.Any(), gomock.Any(), gomock.Any()).
-					Return(&iam.GetRoleOutput{Role: testRole(roleName)}, nil)
-				m.EXPECT().ListAttachedRolePolicies(gomock.Any(), gomock.Any(), gomock.Any()).
-					Return(&iam.ListAttachedRolePoliciesOutput{}, nil)
-				m.EXPECT().ListRolePolicies(gomock.Any(), gomock.Any(), gomock.Any()).
-					Return(&iam.ListRolePoliciesOutput{PolicyNames: []string{}, IsTruncated: false}, nil)
-				m.EXPECT().DeleteRole(gomock.Any(), gomock.Any(), gomock.Any()).
-					Return(&iam.DeleteRoleOutput{}, nil)
+				gomock.InOrder(
+					m.EXPECT().GetRole(gomock.Any(), &iam.GetRoleInput{RoleName: aws.String(roleName)}, gomock.Any()).
+						Return(&iam.GetRoleOutput{Role: testRole(roleName)}, nil),
+					m.EXPECT().ListAttachedRolePolicies(gomock.Any(), &iam.ListAttachedRolePoliciesInput{RoleName: aws.String(roleName)}, gomock.Any()).
+						Return(&iam.ListAttachedRolePoliciesOutput{}, nil),
+					m.EXPECT().ListRolePolicies(gomock.Any(), &iam.ListRolePoliciesInput{RoleName: aws.String(roleName)}, gomock.Any()).
+						Return(&iam.ListRolePoliciesOutput{PolicyNames: []string{}, IsTruncated: false}, nil),
+					m.EXPECT().DeleteRole(gomock.Any(), &iam.DeleteRoleInput{RoleName: aws.String(roleName)}, gomock.Any()).
+						Return(&iam.DeleteRoleOutput{}, nil),
+				)
 			},
 			expectRemoved: true,
 		},
 		{
 			name: "When role exists with managed and inline policies it should detach and delete all then delete the role",
 			setupMock: func(m *awsapi.MockIAMAPI) {
-				m.EXPECT().GetRole(gomock.Any(), gomock.Any(), gomock.Any()).
-					Return(&iam.GetRoleOutput{Role: testRole(roleName)}, nil)
-				m.EXPECT().ListAttachedRolePolicies(gomock.Any(), gomock.Any(), gomock.Any()).
-					Return(&iam.ListAttachedRolePoliciesOutput{
-						AttachedPolicies: []iamtypes.AttachedPolicy{
-							{PolicyArn: aws.String("arn:aws:iam::aws:policy/ManagedPolicy"), PolicyName: aws.String("ManagedPolicy")},
-						},
-					}, nil)
-				m.EXPECT().DetachRolePolicy(gomock.Any(), gomock.Any(), gomock.Any()).
-					Return(&iam.DetachRolePolicyOutput{}, nil)
-				m.EXPECT().ListRolePolicies(gomock.Any(), gomock.Any(), gomock.Any()).
-					Return(&iam.ListRolePoliciesOutput{PolicyNames: []string{"inline-policy"}, IsTruncated: false}, nil)
-				m.EXPECT().DeleteRolePolicy(gomock.Any(), gomock.Any(), gomock.Any()).
-					Return(&iam.DeleteRolePolicyOutput{}, nil)
-				m.EXPECT().DeleteRole(gomock.Any(), gomock.Any(), gomock.Any()).
-					Return(&iam.DeleteRoleOutput{}, nil)
+				gomock.InOrder(
+					m.EXPECT().GetRole(gomock.Any(), &iam.GetRoleInput{RoleName: aws.String(roleName)}, gomock.Any()).
+						Return(&iam.GetRoleOutput{Role: testRole(roleName)}, nil),
+					m.EXPECT().ListAttachedRolePolicies(gomock.Any(), &iam.ListAttachedRolePoliciesInput{RoleName: aws.String(roleName)}, gomock.Any()).
+						Return(&iam.ListAttachedRolePoliciesOutput{
+							AttachedPolicies: []iamtypes.AttachedPolicy{
+								{PolicyArn: aws.String("arn:aws:iam::aws:policy/ManagedPolicy"), PolicyName: aws.String("ManagedPolicy")},
+							},
+						}, nil),
+					m.EXPECT().DetachRolePolicy(gomock.Any(), &iam.DetachRolePolicyInput{RoleName: aws.String(roleName), PolicyArn: aws.String("arn:aws:iam::aws:policy/ManagedPolicy")}, gomock.Any()).
+						Return(&iam.DetachRolePolicyOutput{}, nil),
+					m.EXPECT().ListRolePolicies(gomock.Any(), &iam.ListRolePoliciesInput{RoleName: aws.String(roleName)}, gomock.Any()).
+						Return(&iam.ListRolePoliciesOutput{PolicyNames: []string{"inline-policy"}, IsTruncated: false}, nil),
+					m.EXPECT().DeleteRolePolicy(gomock.Any(), &iam.DeleteRolePolicyInput{RoleName: aws.String(roleName), PolicyName: aws.String("inline-policy")}, gomock.Any()).
+						Return(&iam.DeleteRolePolicyOutput{}, nil),
+					m.EXPECT().DeleteRole(gomock.Any(), &iam.DeleteRoleInput{RoleName: aws.String(roleName)}, gomock.Any()).
+						Return(&iam.DeleteRoleOutput{}, nil),
+				)
 			},
 			expectRemoved: true,
 		},
 		{
 			name: "When inline policy delete returns NoSuchEntityException it should ignore and continue",
 			setupMock: func(m *awsapi.MockIAMAPI) {
-				m.EXPECT().GetRole(gomock.Any(), gomock.Any(), gomock.Any()).
-					Return(&iam.GetRoleOutput{Role: testRole(roleName)}, nil)
-				m.EXPECT().ListAttachedRolePolicies(gomock.Any(), gomock.Any(), gomock.Any()).
-					Return(&iam.ListAttachedRolePoliciesOutput{}, nil)
-				m.EXPECT().ListRolePolicies(gomock.Any(), gomock.Any(), gomock.Any()).
-					Return(&iam.ListRolePoliciesOutput{PolicyNames: []string{"gone-policy"}, IsTruncated: false}, nil)
-				m.EXPECT().DeleteRolePolicy(gomock.Any(), gomock.Any(), gomock.Any()).
-					Return(nil, noSuchEntity())
-				m.EXPECT().DeleteRole(gomock.Any(), gomock.Any(), gomock.Any()).
-					Return(&iam.DeleteRoleOutput{}, nil)
+				gomock.InOrder(
+					m.EXPECT().GetRole(gomock.Any(), &iam.GetRoleInput{RoleName: aws.String(roleName)}, gomock.Any()).
+						Return(&iam.GetRoleOutput{Role: testRole(roleName)}, nil),
+					m.EXPECT().ListAttachedRolePolicies(gomock.Any(), &iam.ListAttachedRolePoliciesInput{RoleName: aws.String(roleName)}, gomock.Any()).
+						Return(&iam.ListAttachedRolePoliciesOutput{}, nil),
+					m.EXPECT().ListRolePolicies(gomock.Any(), &iam.ListRolePoliciesInput{RoleName: aws.String(roleName)}, gomock.Any()).
+						Return(&iam.ListRolePoliciesOutput{PolicyNames: []string{"gone-policy"}, IsTruncated: false}, nil),
+					m.EXPECT().DeleteRolePolicy(gomock.Any(), &iam.DeleteRolePolicyInput{RoleName: aws.String(roleName), PolicyName: aws.String("gone-policy")}, gomock.Any()).
+						Return(nil, noSuchEntity()),
+					m.EXPECT().DeleteRole(gomock.Any(), &iam.DeleteRoleInput{RoleName: aws.String(roleName)}, gomock.Any()).
+						Return(&iam.DeleteRoleOutput{}, nil),
+				)
 			},
 			expectRemoved: true,
 		},
 		{
 			name: "When GetRole returns an API error it should return a wrapped error",
 			setupMock: func(m *awsapi.MockIAMAPI) {
-				m.EXPECT().GetRole(gomock.Any(), gomock.Any(), gomock.Any()).
+				m.EXPECT().GetRole(gomock.Any(), &iam.GetRoleInput{RoleName: aws.String(roleName)}, gomock.Any()).
 					Return(nil, errors.New("api error"))
 			},
 			expectError:   true,
@@ -130,10 +137,12 @@ func TestDestroyOIDCRole(t *testing.T) {
 		{
 			name: "When ListAttachedRolePolicies fails it should return the error",
 			setupMock: func(m *awsapi.MockIAMAPI) {
-				m.EXPECT().GetRole(gomock.Any(), gomock.Any(), gomock.Any()).
-					Return(&iam.GetRoleOutput{Role: testRole(roleName)}, nil)
-				m.EXPECT().ListAttachedRolePolicies(gomock.Any(), gomock.Any(), gomock.Any()).
-					Return(nil, errors.New("list policies failed"))
+				gomock.InOrder(
+					m.EXPECT().GetRole(gomock.Any(), &iam.GetRoleInput{RoleName: aws.String(roleName)}, gomock.Any()).
+						Return(&iam.GetRoleOutput{Role: testRole(roleName)}, nil),
+					m.EXPECT().ListAttachedRolePolicies(gomock.Any(), &iam.ListAttachedRolePoliciesInput{RoleName: aws.String(roleName)}, gomock.Any()).
+						Return(nil, errors.New("list policies failed")),
+				)
 			},
 			expectError:   true,
 			errorContains: "failed to list attached policies",
@@ -141,16 +150,18 @@ func TestDestroyOIDCRole(t *testing.T) {
 		{
 			name: "When DetachRolePolicy fails it should return the error",
 			setupMock: func(m *awsapi.MockIAMAPI) {
-				m.EXPECT().GetRole(gomock.Any(), gomock.Any(), gomock.Any()).
-					Return(&iam.GetRoleOutput{Role: testRole(roleName)}, nil)
-				m.EXPECT().ListAttachedRolePolicies(gomock.Any(), gomock.Any(), gomock.Any()).
-					Return(&iam.ListAttachedRolePoliciesOutput{
-						AttachedPolicies: []iamtypes.AttachedPolicy{
-							{PolicyArn: aws.String("arn:aws:iam::aws:policy/ManagedPolicy"), PolicyName: aws.String("ManagedPolicy")},
-						},
-					}, nil)
-				m.EXPECT().DetachRolePolicy(gomock.Any(), gomock.Any(), gomock.Any()).
-					Return(nil, errors.New("detach failed"))
+				gomock.InOrder(
+					m.EXPECT().GetRole(gomock.Any(), &iam.GetRoleInput{RoleName: aws.String(roleName)}, gomock.Any()).
+						Return(&iam.GetRoleOutput{Role: testRole(roleName)}, nil),
+					m.EXPECT().ListAttachedRolePolicies(gomock.Any(), &iam.ListAttachedRolePoliciesInput{RoleName: aws.String(roleName)}, gomock.Any()).
+						Return(&iam.ListAttachedRolePoliciesOutput{
+							AttachedPolicies: []iamtypes.AttachedPolicy{
+								{PolicyArn: aws.String("arn:aws:iam::aws:policy/ManagedPolicy"), PolicyName: aws.String("ManagedPolicy")},
+							},
+						}, nil),
+					m.EXPECT().DetachRolePolicy(gomock.Any(), &iam.DetachRolePolicyInput{RoleName: aws.String(roleName), PolicyArn: aws.String("arn:aws:iam::aws:policy/ManagedPolicy")}, gomock.Any()).
+						Return(nil, errors.New("detach failed")),
+				)
 			},
 			expectError:   true,
 			errorContains: "failed to detach policy",
@@ -158,12 +169,14 @@ func TestDestroyOIDCRole(t *testing.T) {
 		{
 			name: "When ListRolePolicies fails it should return the error",
 			setupMock: func(m *awsapi.MockIAMAPI) {
-				m.EXPECT().GetRole(gomock.Any(), gomock.Any(), gomock.Any()).
-					Return(&iam.GetRoleOutput{Role: testRole(roleName)}, nil)
-				m.EXPECT().ListAttachedRolePolicies(gomock.Any(), gomock.Any(), gomock.Any()).
-					Return(&iam.ListAttachedRolePoliciesOutput{}, nil)
-				m.EXPECT().ListRolePolicies(gomock.Any(), gomock.Any(), gomock.Any()).
-					Return(nil, errors.New("list inline failed"))
+				gomock.InOrder(
+					m.EXPECT().GetRole(gomock.Any(), &iam.GetRoleInput{RoleName: aws.String(roleName)}, gomock.Any()).
+						Return(&iam.GetRoleOutput{Role: testRole(roleName)}, nil),
+					m.EXPECT().ListAttachedRolePolicies(gomock.Any(), &iam.ListAttachedRolePoliciesInput{RoleName: aws.String(roleName)}, gomock.Any()).
+						Return(&iam.ListAttachedRolePoliciesOutput{}, nil),
+					m.EXPECT().ListRolePolicies(gomock.Any(), &iam.ListRolePoliciesInput{RoleName: aws.String(roleName)}, gomock.Any()).
+						Return(nil, errors.New("list inline failed")),
+				)
 			},
 			expectError:   true,
 			errorContains: "failed to list inline policies",
@@ -171,14 +184,16 @@ func TestDestroyOIDCRole(t *testing.T) {
 		{
 			name: "When DeleteRole fails it should return the error",
 			setupMock: func(m *awsapi.MockIAMAPI) {
-				m.EXPECT().GetRole(gomock.Any(), gomock.Any(), gomock.Any()).
-					Return(&iam.GetRoleOutput{Role: testRole(roleName)}, nil)
-				m.EXPECT().ListAttachedRolePolicies(gomock.Any(), gomock.Any(), gomock.Any()).
-					Return(&iam.ListAttachedRolePoliciesOutput{}, nil)
-				m.EXPECT().ListRolePolicies(gomock.Any(), gomock.Any(), gomock.Any()).
-					Return(&iam.ListRolePoliciesOutput{PolicyNames: []string{}, IsTruncated: false}, nil)
-				m.EXPECT().DeleteRole(gomock.Any(), gomock.Any(), gomock.Any()).
-					Return(nil, errors.New("delete role failed"))
+				gomock.InOrder(
+					m.EXPECT().GetRole(gomock.Any(), &iam.GetRoleInput{RoleName: aws.String(roleName)}, gomock.Any()).
+						Return(&iam.GetRoleOutput{Role: testRole(roleName)}, nil),
+					m.EXPECT().ListAttachedRolePolicies(gomock.Any(), &iam.ListAttachedRolePoliciesInput{RoleName: aws.String(roleName)}, gomock.Any()).
+						Return(&iam.ListAttachedRolePoliciesOutput{}, nil),
+					m.EXPECT().ListRolePolicies(gomock.Any(), &iam.ListRolePoliciesInput{RoleName: aws.String(roleName)}, gomock.Any()).
+						Return(&iam.ListRolePoliciesOutput{PolicyNames: []string{}, IsTruncated: false}, nil),
+					m.EXPECT().DeleteRole(gomock.Any(), &iam.DeleteRoleInput{RoleName: aws.String(roleName)}, gomock.Any()).
+						Return(nil, errors.New("delete role failed")),
+				)
 			},
 			expectError:   true,
 			errorContains: "failed to delete role",
@@ -187,6 +202,7 @@ func TestDestroyOIDCRole(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			g := NewWithT(t)
 			ctrl := gomock.NewController(t)
 			mockIAM := awsapi.NewMockIAMAPI(ctrl)
 			tt.setupMock(mockIAM)
@@ -195,19 +211,13 @@ func TestDestroyOIDCRole(t *testing.T) {
 			removed, err := o.DestroyOIDCRole(context.Background(), mockIAM, "openshift-ingress")
 
 			if tt.expectError {
-				if err == nil {
-					t.Fatal("expected error, got nil")
-				}
-				if tt.errorContains != "" && !strings.Contains(err.Error(), tt.errorContains) {
-					t.Errorf("expected error containing %q, got: %v", tt.errorContains, err)
+				g.Expect(err).To(HaveOccurred())
+				if tt.errorContains != "" {
+					g.Expect(err.Error()).To(ContainSubstring(tt.errorContains))
 				}
 			} else {
-				if err != nil {
-					t.Errorf("expected no error, got: %v", err)
-				}
-				if removed != tt.expectRemoved {
-					t.Errorf("expected removed=%v, got %v", tt.expectRemoved, removed)
-				}
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(removed).To(Equal(tt.expectRemoved))
 			}
 		})
 	}
@@ -230,87 +240,100 @@ func TestDestroyWorkerInstanceProfile(t *testing.T) {
 		{
 			name: "When no instance profile or worker roles exist it should return nil",
 			setupMock: func(m *awsapi.MockIAMAPI) {
-				// existingInstanceProfile
-				m.EXPECT().GetInstanceProfile(gomock.Any(), gomock.Any(), gomock.Any()).
-					Return(nil, noSuchEntity())
-				// existingRole for standard role
-				m.EXPECT().GetRole(gomock.Any(), gomock.Any(), gomock.Any()).
-					Return(nil, noSuchEntity())
-				// existingRole for ROSA role
-				m.EXPECT().GetRole(gomock.Any(), gomock.Any(), gomock.Any()).
-					Return(nil, noSuchEntity())
+				gomock.InOrder(
+					// existingInstanceProfile
+					m.EXPECT().GetInstanceProfile(gomock.Any(), &iam.GetInstanceProfileInput{InstanceProfileName: aws.String(profileName)}, gomock.Any()).
+						Return(nil, noSuchEntity()),
+					// existingRole for standard role
+					m.EXPECT().GetRole(gomock.Any(), &iam.GetRoleInput{RoleName: aws.String(standardRole)}, gomock.Any()).
+						Return(nil, noSuchEntity()),
+					// existingRole for ROSA role
+					m.EXPECT().GetRole(gomock.Any(), &iam.GetRoleInput{RoleName: aws.String(rosaRole)}, gomock.Any()).
+						Return(nil, noSuchEntity()),
+				)
 			},
 		},
 		{
 			name: "When instance profile with a role exists it should remove the role and delete the profile",
 			setupMock: func(m *awsapi.MockIAMAPI) {
-				m.EXPECT().GetInstanceProfile(gomock.Any(), gomock.Any(), gomock.Any()).
-					Return(&iam.GetInstanceProfileOutput{
-						InstanceProfile: testInstanceProfile(profileName,
-							iamtypes.Role{RoleName: aws.String("worker-role")},
-						),
-					}, nil)
-				m.EXPECT().RemoveRoleFromInstanceProfile(gomock.Any(), gomock.Any(), gomock.Any()).
-					Return(&iam.RemoveRoleFromInstanceProfileOutput{}, nil)
-				m.EXPECT().DeleteInstanceProfile(gomock.Any(), gomock.Any(), gomock.Any()).
-					Return(&iam.DeleteInstanceProfileOutput{}, nil)
-				// standard role and ROSA role not found
-				m.EXPECT().GetRole(gomock.Any(), gomock.Any(), gomock.Any()).
-					Return(nil, noSuchEntity()).Times(2)
+				gomock.InOrder(
+					m.EXPECT().GetInstanceProfile(gomock.Any(), &iam.GetInstanceProfileInput{InstanceProfileName: aws.String(profileName)}, gomock.Any()).
+						Return(&iam.GetInstanceProfileOutput{
+							InstanceProfile: testInstanceProfile(profileName,
+								iamtypes.Role{RoleName: aws.String("worker-role")},
+							),
+						}, nil),
+					m.EXPECT().RemoveRoleFromInstanceProfile(gomock.Any(), &iam.RemoveRoleFromInstanceProfileInput{
+						InstanceProfileName: aws.String(profileName),
+						RoleName:            aws.String("worker-role"),
+					}, gomock.Any()).
+						Return(&iam.RemoveRoleFromInstanceProfileOutput{}, nil),
+					m.EXPECT().DeleteInstanceProfile(gomock.Any(), &iam.DeleteInstanceProfileInput{InstanceProfileName: aws.String(profileName)}, gomock.Any()).
+						Return(&iam.DeleteInstanceProfileOutput{}, nil),
+					// standard role and ROSA role not found
+					m.EXPECT().GetRole(gomock.Any(), &iam.GetRoleInput{RoleName: aws.String(standardRole)}, gomock.Any()).
+						Return(nil, noSuchEntity()),
+					m.EXPECT().GetRole(gomock.Any(), &iam.GetRoleInput{RoleName: aws.String(rosaRole)}, gomock.Any()).
+						Return(nil, noSuchEntity()),
+				)
 			},
 		},
 		{
 			name: "When standard worker role exists with an inline policy it should delete the policy and the role",
 			setupMock: func(m *awsapi.MockIAMAPI) {
-				// no instance profile
-				m.EXPECT().GetInstanceProfile(gomock.Any(), gomock.Any(), gomock.Any()).
-					Return(nil, noSuchEntity())
-				// standard role exists
-				m.EXPECT().GetRole(gomock.Any(), gomock.Any(), gomock.Any()).
-					Return(&iam.GetRoleOutput{Role: testRole(standardRole)}, nil)
-				// policy exists
-				m.EXPECT().GetRolePolicy(gomock.Any(), gomock.Any(), gomock.Any()).
-					Return(&iam.GetRolePolicyOutput{
-						RoleName:   aws.String(standardRole),
-						PolicyName: aws.String(standardPolicy),
-					}, nil)
-				m.EXPECT().DeleteRolePolicy(gomock.Any(), gomock.Any(), gomock.Any()).
-					Return(&iam.DeleteRolePolicyOutput{}, nil)
-				m.EXPECT().DeleteRole(gomock.Any(), gomock.Any(), gomock.Any()).
-					Return(&iam.DeleteRoleOutput{}, nil)
-				// ROSA role not found
-				m.EXPECT().GetRole(gomock.Any(), gomock.Any(), gomock.Any()).
-					Return(nil, noSuchEntity())
+				gomock.InOrder(
+					// no instance profile
+					m.EXPECT().GetInstanceProfile(gomock.Any(), &iam.GetInstanceProfileInput{InstanceProfileName: aws.String(profileName)}, gomock.Any()).
+						Return(nil, noSuchEntity()),
+					// standard role exists
+					m.EXPECT().GetRole(gomock.Any(), &iam.GetRoleInput{RoleName: aws.String(standardRole)}, gomock.Any()).
+						Return(&iam.GetRoleOutput{Role: testRole(standardRole)}, nil),
+					// policy exists
+					m.EXPECT().GetRolePolicy(gomock.Any(), &iam.GetRolePolicyInput{RoleName: aws.String(standardRole), PolicyName: aws.String(standardPolicy)}, gomock.Any()).
+						Return(&iam.GetRolePolicyOutput{
+							RoleName:   aws.String(standardRole),
+							PolicyName: aws.String(standardPolicy),
+						}, nil),
+					m.EXPECT().DeleteRolePolicy(gomock.Any(), &iam.DeleteRolePolicyInput{PolicyName: aws.String(standardPolicy), RoleName: aws.String(standardRole)}, gomock.Any()).
+						Return(&iam.DeleteRolePolicyOutput{}, nil),
+					m.EXPECT().DeleteRole(gomock.Any(), &iam.DeleteRoleInput{RoleName: aws.String(standardRole)}, gomock.Any()).
+						Return(&iam.DeleteRoleOutput{}, nil),
+					// ROSA role not found
+					m.EXPECT().GetRole(gomock.Any(), &iam.GetRoleInput{RoleName: aws.String(rosaRole)}, gomock.Any()).
+						Return(nil, noSuchEntity()),
+				)
 			},
 		},
 		{
 			name: "When ROSA worker role exists with a managed policy it should detach the policy and delete the role",
 			setupMock: func(m *awsapi.MockIAMAPI) {
-				// no instance profile
-				m.EXPECT().GetInstanceProfile(gomock.Any(), gomock.Any(), gomock.Any()).
-					Return(nil, noSuchEntity())
-				// standard role not found
-				m.EXPECT().GetRole(gomock.Any(), gomock.Any(), gomock.Any()).
-					Return(nil, noSuchEntity())
-				// ROSA role exists
-				m.EXPECT().GetRole(gomock.Any(), gomock.Any(), gomock.Any()).
-					Return(&iam.GetRoleOutput{Role: testRole(rosaRole)}, nil)
-				m.EXPECT().ListAttachedRolePolicies(gomock.Any(), gomock.Any(), gomock.Any()).
-					Return(&iam.ListAttachedRolePoliciesOutput{
-						AttachedPolicies: []iamtypes.AttachedPolicy{
-							{PolicyArn: aws.String("arn:aws:iam::aws:policy/ROSAPolicy"), PolicyName: aws.String("ROSAPolicy")},
-						},
-					}, nil)
-				m.EXPECT().DetachRolePolicy(gomock.Any(), gomock.Any(), gomock.Any()).
-					Return(&iam.DetachRolePolicyOutput{}, nil)
-				m.EXPECT().DeleteRole(gomock.Any(), gomock.Any(), gomock.Any()).
-					Return(&iam.DeleteRoleOutput{}, nil)
+				gomock.InOrder(
+					// no instance profile
+					m.EXPECT().GetInstanceProfile(gomock.Any(), &iam.GetInstanceProfileInput{InstanceProfileName: aws.String(profileName)}, gomock.Any()).
+						Return(nil, noSuchEntity()),
+					// standard role not found
+					m.EXPECT().GetRole(gomock.Any(), &iam.GetRoleInput{RoleName: aws.String(standardRole)}, gomock.Any()).
+						Return(nil, noSuchEntity()),
+					// ROSA role exists
+					m.EXPECT().GetRole(gomock.Any(), &iam.GetRoleInput{RoleName: aws.String(rosaRole)}, gomock.Any()).
+						Return(&iam.GetRoleOutput{Role: testRole(rosaRole)}, nil),
+					m.EXPECT().ListAttachedRolePolicies(gomock.Any(), &iam.ListAttachedRolePoliciesInput{RoleName: aws.String(rosaRole)}, gomock.Any()).
+						Return(&iam.ListAttachedRolePoliciesOutput{
+							AttachedPolicies: []iamtypes.AttachedPolicy{
+								{PolicyArn: aws.String("arn:aws:iam::aws:policy/ROSAPolicy"), PolicyName: aws.String("ROSAPolicy")},
+							},
+						}, nil),
+					m.EXPECT().DetachRolePolicy(gomock.Any(), &iam.DetachRolePolicyInput{PolicyArn: aws.String("arn:aws:iam::aws:policy/ROSAPolicy"), RoleName: aws.String(rosaRole)}, gomock.Any()).
+						Return(&iam.DetachRolePolicyOutput{}, nil),
+					m.EXPECT().DeleteRole(gomock.Any(), &iam.DeleteRoleInput{RoleName: aws.String(rosaRole)}, gomock.Any()).
+						Return(&iam.DeleteRoleOutput{}, nil),
+				)
 			},
 		},
 		{
 			name: "When GetInstanceProfile returns an API error it should return the error",
 			setupMock: func(m *awsapi.MockIAMAPI) {
-				m.EXPECT().GetInstanceProfile(gomock.Any(), gomock.Any(), gomock.Any()).
+				m.EXPECT().GetInstanceProfile(gomock.Any(), &iam.GetInstanceProfileInput{InstanceProfileName: aws.String(profileName)}, gomock.Any()).
 					Return(nil, errors.New("api error"))
 			},
 			expectError:   true,
@@ -319,14 +342,19 @@ func TestDestroyWorkerInstanceProfile(t *testing.T) {
 		{
 			name: "When RemoveRoleFromInstanceProfile fails it should return the error",
 			setupMock: func(m *awsapi.MockIAMAPI) {
-				m.EXPECT().GetInstanceProfile(gomock.Any(), gomock.Any(), gomock.Any()).
-					Return(&iam.GetInstanceProfileOutput{
-						InstanceProfile: testInstanceProfile(profileName,
-							iamtypes.Role{RoleName: aws.String("worker-role")},
-						),
-					}, nil)
-				m.EXPECT().RemoveRoleFromInstanceProfile(gomock.Any(), gomock.Any(), gomock.Any()).
-					Return(nil, errors.New("remove failed"))
+				gomock.InOrder(
+					m.EXPECT().GetInstanceProfile(gomock.Any(), &iam.GetInstanceProfileInput{InstanceProfileName: aws.String(profileName)}, gomock.Any()).
+						Return(&iam.GetInstanceProfileOutput{
+							InstanceProfile: testInstanceProfile(profileName,
+								iamtypes.Role{RoleName: aws.String("worker-role")},
+							),
+						}, nil),
+					m.EXPECT().RemoveRoleFromInstanceProfile(gomock.Any(), &iam.RemoveRoleFromInstanceProfileInput{
+						InstanceProfileName: aws.String(profileName),
+						RoleName:            aws.String("worker-role"),
+					}, gomock.Any()).
+						Return(nil, errors.New("remove failed")),
+				)
 			},
 			expectError:   true,
 			errorContains: "cannot remove role",
@@ -335,6 +363,7 @@ func TestDestroyWorkerInstanceProfile(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			g := NewWithT(t)
 			ctrl := gomock.NewController(t)
 			mockIAM := awsapi.NewMockIAMAPI(ctrl)
 			tt.setupMock(mockIAM)
@@ -343,16 +372,12 @@ func TestDestroyWorkerInstanceProfile(t *testing.T) {
 			err := o.DestroyWorkerInstanceProfile(context.Background(), mockIAM)
 
 			if tt.expectError {
-				if err == nil {
-					t.Fatal("expected error, got nil")
-				}
-				if tt.errorContains != "" && !strings.Contains(err.Error(), tt.errorContains) {
-					t.Errorf("expected error containing %q, got: %v", tt.errorContains, err)
+				g.Expect(err).To(HaveOccurred())
+				if tt.errorContains != "" {
+					g.Expect(err.Error()).To(ContainSubstring(tt.errorContains))
 				}
 			} else {
-				if err != nil {
-					t.Errorf("expected no error, got: %v", err)
-				}
+				g.Expect(err).NotTo(HaveOccurred())
 			}
 		})
 	}
@@ -363,6 +388,10 @@ func TestDestroyOIDCResources(t *testing.T) {
 	const matchingARN = "arn:aws:iam::123456789012:oidc-provider/s3.example.com/" + testInfraID
 	const otherARN = "arn:aws:iam::123456789012:oidc-provider/s3.example.com/other-infra"
 
+	// DestroyOIDCResources calls GetRole for: shared-role + 9 individual component roles.
+	// When shared-role is not found (removed=false), all 9 individual roles are also checked.
+	const totalRoleChecks = 10
+
 	tests := []struct {
 		name          string
 		setupMock     func(*awsapi.MockIAMAPI)
@@ -372,53 +401,59 @@ func TestDestroyOIDCResources(t *testing.T) {
 		{
 			name: "When OIDC provider matches infraID and shared role exists it should delete the provider and return early",
 			setupMock: func(m *awsapi.MockIAMAPI) {
-				m.EXPECT().ListOpenIDConnectProviders(gomock.Any(), gomock.Any(), gomock.Any()).
-					Return(&iam.ListOpenIDConnectProvidersOutput{
-						OpenIDConnectProviderList: []iamtypes.OpenIDConnectProviderListEntry{
-							{Arn: aws.String(matchingARN)},
-						},
-					}, nil)
-				m.EXPECT().DeleteOpenIDConnectProvider(gomock.Any(), gomock.Any(), gomock.Any()).
-					Return(&iam.DeleteOpenIDConnectProviderOutput{}, nil)
-				// DestroyOIDCRole("shared-role") → role found → early return
-				m.EXPECT().GetRole(gomock.Any(), gomock.Any(), gomock.Any()).
-					Return(&iam.GetRoleOutput{Role: testRole(testInfraID + "-shared-role")}, nil)
-				m.EXPECT().ListAttachedRolePolicies(gomock.Any(), gomock.Any(), gomock.Any()).
-					Return(&iam.ListAttachedRolePoliciesOutput{}, nil)
-				m.EXPECT().ListRolePolicies(gomock.Any(), gomock.Any(), gomock.Any()).
-					Return(&iam.ListRolePoliciesOutput{IsTruncated: false}, nil)
-				m.EXPECT().DeleteRole(gomock.Any(), gomock.Any(), gomock.Any()).
-					Return(&iam.DeleteRoleOutput{}, nil)
+				gomock.InOrder(
+					m.EXPECT().ListOpenIDConnectProviders(gomock.Any(), gomock.Any(), gomock.Any()).
+						Return(&iam.ListOpenIDConnectProvidersOutput{
+							OpenIDConnectProviderList: []iamtypes.OpenIDConnectProviderListEntry{
+								{Arn: aws.String(matchingARN)},
+							},
+						}, nil),
+					m.EXPECT().DeleteOpenIDConnectProvider(gomock.Any(), gomock.Any(), gomock.Any()).
+						Return(&iam.DeleteOpenIDConnectProviderOutput{}, nil),
+					// DestroyOIDCRole("shared-role") → role found → early return
+					m.EXPECT().GetRole(gomock.Any(), gomock.Any(), gomock.Any()).
+						Return(&iam.GetRoleOutput{Role: testRole(testInfraID + "-shared-role")}, nil),
+					m.EXPECT().ListAttachedRolePolicies(gomock.Any(), gomock.Any(), gomock.Any()).
+						Return(&iam.ListAttachedRolePoliciesOutput{}, nil),
+					m.EXPECT().ListRolePolicies(gomock.Any(), gomock.Any(), gomock.Any()).
+						Return(&iam.ListRolePoliciesOutput{IsTruncated: false}, nil),
+					m.EXPECT().DeleteRole(gomock.Any(), gomock.Any(), gomock.Any()).
+						Return(&iam.DeleteRoleOutput{}, nil),
+				)
 			},
 		},
 		{
 			name: "When OIDC provider ARN does not match infraID it should skip deletion and proceed with role cleanup",
 			setupMock: func(m *awsapi.MockIAMAPI) {
-				m.EXPECT().ListOpenIDConnectProviders(gomock.Any(), gomock.Any(), gomock.Any()).
-					Return(&iam.ListOpenIDConnectProvidersOutput{
-						OpenIDConnectProviderList: []iamtypes.OpenIDConnectProviderListEntry{
-							{Arn: aws.String(otherARN)},
-						},
-					}, nil)
-				// All role lookups return not found — covers shared-role + 9 component roles
-				m.EXPECT().GetRole(gomock.Any(), gomock.Any(), gomock.Any()).
-					Return(nil, noSuchEntity()).AnyTimes()
+				gomock.InOrder(
+					m.EXPECT().ListOpenIDConnectProviders(gomock.Any(), gomock.Any(), gomock.Any()).
+						Return(&iam.ListOpenIDConnectProvidersOutput{
+							OpenIDConnectProviderList: []iamtypes.OpenIDConnectProviderListEntry{
+								{Arn: aws.String(otherARN)},
+							},
+						}, nil),
+					// shared-role + 9 component roles, all not found
+					m.EXPECT().GetRole(gomock.Any(), gomock.Any(), gomock.Any()).
+						Return(nil, noSuchEntity()).Times(totalRoleChecks),
+				)
 			},
 		},
 		{
 			name: "When DeleteOpenIDConnectProvider returns NoSuchEntityException it should ignore and continue",
 			setupMock: func(m *awsapi.MockIAMAPI) {
-				m.EXPECT().ListOpenIDConnectProviders(gomock.Any(), gomock.Any(), gomock.Any()).
-					Return(&iam.ListOpenIDConnectProvidersOutput{
-						OpenIDConnectProviderList: []iamtypes.OpenIDConnectProviderListEntry{
-							{Arn: aws.String(matchingARN)},
-						},
-					}, nil)
-				m.EXPECT().DeleteOpenIDConnectProvider(gomock.Any(), gomock.Any(), gomock.Any()).
-					Return(nil, noSuchEntity())
-				// continues to role cleanup; all roles not found
-				m.EXPECT().GetRole(gomock.Any(), gomock.Any(), gomock.Any()).
-					Return(nil, noSuchEntity()).AnyTimes()
+				gomock.InOrder(
+					m.EXPECT().ListOpenIDConnectProviders(gomock.Any(), gomock.Any(), gomock.Any()).
+						Return(&iam.ListOpenIDConnectProvidersOutput{
+							OpenIDConnectProviderList: []iamtypes.OpenIDConnectProviderListEntry{
+								{Arn: aws.String(matchingARN)},
+							},
+						}, nil),
+					m.EXPECT().DeleteOpenIDConnectProvider(gomock.Any(), gomock.Any(), gomock.Any()).
+						Return(nil, noSuchEntity()),
+					// continues to role cleanup; shared-role + 9 component roles all not found
+					m.EXPECT().GetRole(gomock.Any(), gomock.Any(), gomock.Any()).
+						Return(nil, noSuchEntity()).Times(totalRoleChecks),
+				)
 			},
 		},
 		{
@@ -433,14 +468,16 @@ func TestDestroyOIDCResources(t *testing.T) {
 		{
 			name: "When DeleteOpenIDConnectProvider fails with a non-NSE error it should return the error",
 			setupMock: func(m *awsapi.MockIAMAPI) {
-				m.EXPECT().ListOpenIDConnectProviders(gomock.Any(), gomock.Any(), gomock.Any()).
-					Return(&iam.ListOpenIDConnectProvidersOutput{
-						OpenIDConnectProviderList: []iamtypes.OpenIDConnectProviderListEntry{
-							{Arn: aws.String(matchingARN)},
-						},
-					}, nil)
-				m.EXPECT().DeleteOpenIDConnectProvider(gomock.Any(), gomock.Any(), gomock.Any()).
-					Return(nil, errors.New("permission denied"))
+				gomock.InOrder(
+					m.EXPECT().ListOpenIDConnectProviders(gomock.Any(), gomock.Any(), gomock.Any()).
+						Return(&iam.ListOpenIDConnectProvidersOutput{
+							OpenIDConnectProviderList: []iamtypes.OpenIDConnectProviderListEntry{
+								{Arn: aws.String(matchingARN)},
+							},
+						}, nil),
+					m.EXPECT().DeleteOpenIDConnectProvider(gomock.Any(), gomock.Any(), gomock.Any()).
+						Return(nil, errors.New("permission denied")),
+				)
 			},
 			expectError:   true,
 			errorContains: "permission denied",
@@ -449,6 +486,7 @@ func TestDestroyOIDCResources(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			g := NewWithT(t)
 			ctrl := gomock.NewController(t)
 			mockIAM := awsapi.NewMockIAMAPI(ctrl)
 			tt.setupMock(mockIAM)
@@ -457,22 +495,23 @@ func TestDestroyOIDCResources(t *testing.T) {
 			err := o.DestroyOIDCResources(context.Background(), mockIAM)
 
 			if tt.expectError {
-				if err == nil {
-					t.Fatal("expected error, got nil")
-				}
-				if tt.errorContains != "" && !strings.Contains(err.Error(), tt.errorContains) {
-					t.Errorf("expected error containing %q, got: %v", tt.errorContains, err)
+				g.Expect(err).To(HaveOccurred())
+				if tt.errorContains != "" {
+					g.Expect(err.Error()).To(ContainSubstring(tt.errorContains))
 				}
 			} else {
-				if err != nil {
-					t.Errorf("expected no error, got: %v", err)
-				}
+				g.Expect(err).NotTo(HaveOccurred())
 			}
 		})
 	}
 }
 
 func TestDestroySharedVPCRoles(t *testing.T) {
+	const (
+		ingressRoleName = testInfraID + "-shared-vpc-ingress"
+		cpRoleName      = testInfraID + "-shared-vpc-control-plane"
+	)
+
 	tests := []struct {
 		name                  string
 		privateZonesInCluster bool
@@ -486,25 +525,23 @@ func TestDestroySharedVPCRoles(t *testing.T) {
 			privateZonesInCluster: false,
 			setupIAMMock:          func(_ *awsapi.MockIAMAPI) {},
 			setupVPCOwnerMock: func(m *awsapi.MockIAMAPI) {
-				// ingress role not found on vpcOwner
-				m.EXPECT().GetRole(gomock.Any(), gomock.Any(), gomock.Any()).
-					Return(nil, noSuchEntity())
-				// control-plane role not found on vpcOwner
-				m.EXPECT().GetRole(gomock.Any(), gomock.Any(), gomock.Any()).
-					Return(nil, noSuchEntity())
+				gomock.InOrder(
+					m.EXPECT().GetRole(gomock.Any(), &iam.GetRoleInput{RoleName: aws.String(ingressRoleName)}, gomock.Any()).
+						Return(nil, noSuchEntity()),
+					m.EXPECT().GetRole(gomock.Any(), &iam.GetRoleInput{RoleName: aws.String(cpRoleName)}, gomock.Any()).
+						Return(nil, noSuchEntity()),
+				)
 			},
 		},
 		{
 			name:                  "When PrivateZonesInClusterAccount is true ingress role should use iamClient",
 			privateZonesInCluster: true,
 			setupIAMMock: func(m *awsapi.MockIAMAPI) {
-				// ingress role not found on iamClient
-				m.EXPECT().GetRole(gomock.Any(), gomock.Any(), gomock.Any()).
+				m.EXPECT().GetRole(gomock.Any(), &iam.GetRoleInput{RoleName: aws.String(ingressRoleName)}, gomock.Any()).
 					Return(nil, noSuchEntity())
 			},
 			setupVPCOwnerMock: func(m *awsapi.MockIAMAPI) {
-				// control-plane role not found on vpcOwner
-				m.EXPECT().GetRole(gomock.Any(), gomock.Any(), gomock.Any()).
+				m.EXPECT().GetRole(gomock.Any(), &iam.GetRoleInput{RoleName: aws.String(cpRoleName)}, gomock.Any()).
 					Return(nil, noSuchEntity())
 			},
 		},
@@ -513,7 +550,7 @@ func TestDestroySharedVPCRoles(t *testing.T) {
 			privateZonesInCluster: false,
 			setupIAMMock:          func(_ *awsapi.MockIAMAPI) {},
 			setupVPCOwnerMock: func(m *awsapi.MockIAMAPI) {
-				m.EXPECT().GetRole(gomock.Any(), gomock.Any(), gomock.Any()).
+				m.EXPECT().GetRole(gomock.Any(), &iam.GetRoleInput{RoleName: aws.String(ingressRoleName)}, gomock.Any()).
 					Return(nil, errors.New("api error"))
 			},
 			expectError:   true,
@@ -524,12 +561,12 @@ func TestDestroySharedVPCRoles(t *testing.T) {
 			privateZonesInCluster: false,
 			setupIAMMock:          func(_ *awsapi.MockIAMAPI) {},
 			setupVPCOwnerMock: func(m *awsapi.MockIAMAPI) {
-				// ingress role not found
-				m.EXPECT().GetRole(gomock.Any(), gomock.Any(), gomock.Any()).
-					Return(nil, noSuchEntity())
-				// control-plane role returns API error
-				m.EXPECT().GetRole(gomock.Any(), gomock.Any(), gomock.Any()).
-					Return(nil, errors.New("api error"))
+				gomock.InOrder(
+					m.EXPECT().GetRole(gomock.Any(), &iam.GetRoleInput{RoleName: aws.String(ingressRoleName)}, gomock.Any()).
+						Return(nil, noSuchEntity()),
+					m.EXPECT().GetRole(gomock.Any(), &iam.GetRoleInput{RoleName: aws.String(cpRoleName)}, gomock.Any()).
+						Return(nil, errors.New("api error")),
+				)
 			},
 			expectError:   true,
 			errorContains: "cannot check for existing role",
@@ -538,6 +575,7 @@ func TestDestroySharedVPCRoles(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			g := NewWithT(t)
 			ctrl := gomock.NewController(t)
 			mockIAM := awsapi.NewMockIAMAPI(ctrl)
 			mockVPCOwner := awsapi.NewMockIAMAPI(ctrl)
@@ -552,16 +590,12 @@ func TestDestroySharedVPCRoles(t *testing.T) {
 			err := o.DestroySharedVPCRoles(context.Background(), mockIAM, mockVPCOwner)
 
 			if tt.expectError {
-				if err == nil {
-					t.Fatal("expected error, got nil")
-				}
-				if tt.errorContains != "" && !strings.Contains(err.Error(), tt.errorContains) {
-					t.Errorf("expected error containing %q, got: %v", tt.errorContains, err)
+				g.Expect(err).To(HaveOccurred())
+				if tt.errorContains != "" {
+					g.Expect(err.Error()).To(ContainSubstring(tt.errorContains))
 				}
 			} else {
-				if err != nil {
-					t.Errorf("expected no error, got: %v", err)
-				}
+				g.Expect(err).NotTo(HaveOccurred())
 			}
 		})
 	}
