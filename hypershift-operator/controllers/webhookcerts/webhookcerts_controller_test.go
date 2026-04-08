@@ -229,6 +229,110 @@ func TestReconcile(t *testing.T) {
 		_, err := r.Reconcile(t.Context(), caRequest())
 		g.Expect(err).ToNot(HaveOccurred())
 	})
+
+	t.Run("When upgrading from service-ca it should remove service-ca annotations from the Service", func(t *testing.T) {
+		g := NewWithT(t)
+
+		svc := &corev1.Service{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "operator",
+				Namespace: "hypershift",
+				Annotations: map[string]string{
+					"service.beta.openshift.io/serving-cert-secret-name": "manager-serving-cert",
+				},
+			},
+			Spec: corev1.ServiceSpec{
+				Ports: []corev1.ServicePort{{Port: 443}},
+			},
+		}
+
+		cl := fake.NewClientBuilder().WithScheme(newScheme(t)).WithObjects(svc).Build()
+		r := newReconciler(cl)
+
+		_, err := r.Reconcile(t.Context(), caRequest())
+		g.Expect(err).ToNot(HaveOccurred())
+
+		updatedSvc := &corev1.Service{}
+		g.Expect(cl.Get(t.Context(), client.ObjectKey{Name: "operator", Namespace: "hypershift"}, updatedSvc)).To(Succeed())
+		g.Expect(updatedSvc.Annotations).ToNot(HaveKey("service.beta.openshift.io/serving-cert-secret-name"))
+	})
+
+	t.Run("When upgrading from service-ca it should delete the service-ca managed serving cert and recreate it", func(t *testing.T) {
+		g := NewWithT(t)
+
+		// Simulate a serving cert secret created by service-ca.
+		serviceCACert := &corev1.Secret{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      ServingCertSecretName,
+				Namespace: "hypershift",
+				Annotations: map[string]string{
+					"service.beta.openshift.io/originating-service-name": "operator",
+				},
+			},
+			Type: corev1.SecretTypeTLS,
+			Data: map[string][]byte{
+				corev1.TLSCertKey:       []byte("service-ca-cert"),
+				corev1.TLSPrivateKeyKey: []byte("service-ca-key"),
+			},
+		}
+
+		svc := &corev1.Service{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "operator",
+				Namespace: "hypershift",
+				Annotations: map[string]string{
+					"service.beta.openshift.io/serving-cert-secret-name": "manager-serving-cert",
+				},
+			},
+			Spec: corev1.ServiceSpec{
+				Ports: []corev1.ServicePort{{Port: 443}},
+			},
+		}
+
+		cl := fake.NewClientBuilder().WithScheme(newScheme(t)).WithObjects(serviceCACert, svc).Build()
+		r := newReconciler(cl)
+
+		_, err := r.Reconcile(t.Context(), caRequest())
+		g.Expect(err).ToNot(HaveOccurred())
+
+		// The service-ca annotation should be removed from the Service.
+		updatedSvc := &corev1.Service{}
+		g.Expect(cl.Get(t.Context(), client.ObjectKey{Name: "operator", Namespace: "hypershift"}, updatedSvc)).To(Succeed())
+		g.Expect(updatedSvc.Annotations).ToNot(HaveKey("service.beta.openshift.io/serving-cert-secret-name"))
+
+		// The serving cert should have been recreated without the service-ca annotation
+		// and signed by the self-managed CA.
+		servingSecret := &corev1.Secret{}
+		g.Expect(cl.Get(t.Context(), client.ObjectKey{Name: ServingCertSecretName, Namespace: "hypershift"}, servingSecret)).To(Succeed())
+		g.Expect(servingSecret.Annotations).ToNot(HaveKey("service.beta.openshift.io/originating-service-name"))
+		g.Expect(servingSecret.Data[corev1.TLSCertKey]).ToNot(Equal([]byte("service-ca-cert")))
+		g.Expect(servingSecret.Data[corev1.TLSCertKey]).ToNot(BeEmpty())
+
+		// Verify the new cert is signed by the self-managed CA.
+		caSecret := &corev1.Secret{}
+		g.Expect(cl.Get(t.Context(), client.ObjectKey{Name: CASecretName, Namespace: "hypershift"}, caSecret)).To(Succeed())
+		g.Expect(caSecret.Data).To(HaveKey(certs.CASignerCertMapKey))
+	})
+
+	t.Run("When the serving cert was not created by service-ca it should not delete it", func(t *testing.T) {
+		g := NewWithT(t)
+
+		// Pre-create valid self-managed secrets.
+		caSecret, servingSecret, _, err := GenerateInitialWebhookCerts("hypershift", "operator")
+		g.Expect(err).ToNot(HaveOccurred())
+		originalCert := servingSecret.Data[corev1.TLSCertKey]
+
+		cl := fake.NewClientBuilder().WithScheme(newScheme(t)).WithObjects(caSecret, servingSecret).Build()
+		r := newReconciler(cl)
+
+		_, err = r.Reconcile(t.Context(), caRequest())
+		g.Expect(err).ToNot(HaveOccurred())
+
+		// Cert should be unchanged.
+		updatedSecret := &corev1.Secret{}
+		g.Expect(cl.Get(t.Context(), client.ObjectKey{Name: ServingCertSecretName, Namespace: "hypershift"}, updatedSecret)).To(Succeed())
+		g.Expect(updatedSecret.Data[corev1.TLSCertKey]).To(Equal(originalCert))
+	})
 }
 
 func TestGenerateInitialWebhookCerts(t *testing.T) {
