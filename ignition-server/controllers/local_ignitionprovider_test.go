@@ -7,11 +7,14 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path"
 	"path/filepath"
 	"testing"
 	"time"
 
 	. "github.com/onsi/gomega"
+
+	"github.com/blang/semver"
 )
 
 func TestExtractMCOBinaries(t *testing.T) {
@@ -289,4 +292,106 @@ func TestGetOrGenerateMCSCertCacheReuse(t *testing.T) {
 		g.Expect(certPEM3).To(Equal(certPEM1))
 		g.Expect(keyPEM3).To(Equal(keyPEM1))
 	})
+}
+
+func TestBuildMCOVersionArgs(t *testing.T) {
+	t.Parallel()
+
+	configDir := "/test/config"
+	payloadVersionStr := "test-version"
+	getImage := func(key string) string { return "image-" + key }
+
+	tests := []struct {
+		name                   string
+		version                string
+		expectPayloadVersion   bool
+		expectImageReferences  bool
+		expectSignerCA         bool
+		expectLegacyImageFlags bool
+		expectRootCA           bool
+	}{
+		{
+			name:                   "When version is 4.12, it should use legacy per-image flags and root CA",
+			version:                "4.12.0",
+			expectLegacyImageFlags: true,
+			expectRootCA:           true,
+		},
+		{
+			name:                  "When version is 4.13, it should use image-references and signer CA without payload-version",
+			version:               "4.13.0",
+			expectImageReferences: true,
+			expectSignerCA:        true,
+		},
+		{
+			name:                  "When version is 4.14, it should include payload-version with image-references and signer CA",
+			version:               "4.14.0",
+			expectPayloadVersion:  true,
+			expectImageReferences: true,
+			expectSignerCA:        true,
+		},
+		{
+			name:                  "When version is 4.16, it should include payload-version with image-references and signer CA",
+			version:               "4.16.0",
+			expectPayloadVersion:  true,
+			expectImageReferences: true,
+			expectSignerCA:        true,
+		},
+		{
+			name:                  "When version is 5.0, it should include payload-version with image-references and signer CA",
+			version:               "5.0.0",
+			expectPayloadVersion:  true,
+			expectImageReferences: true,
+			expectSignerCA:        true,
+		},
+		{
+			name:                  "When version is 5.0 nightly, it should include payload-version with image-references and signer CA",
+			version:               "5.0.0-0.nightly-multi-2026-04-07-214955",
+			expectPayloadVersion:  true,
+			expectImageReferences: true,
+			expectSignerCA:        true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			g := NewWithT(t)
+
+			v, err := semver.Parse(tt.version)
+			g.Expect(err).NotTo(HaveOccurred())
+
+			args := buildMCOVersionArgs(v, payloadVersionStr, getImage, configDir)
+
+			if tt.expectPayloadVersion {
+				g.Expect(args).To(ContainElement(fmt.Sprintf("--payload-version=%s", payloadVersionStr)))
+			} else {
+				g.Expect(args).NotTo(ContainElement(ContainSubstring("--payload-version=")))
+			}
+
+			expectedImageRef := fmt.Sprintf("--image-references=%s", path.Join(configDir, "release-manifests", "image-references"))
+			if tt.expectImageReferences {
+				g.Expect(args).To(ContainElement(expectedImageRef))
+			} else {
+				g.Expect(args).NotTo(ContainElement(ContainSubstring("--image-references=")))
+			}
+
+			if tt.expectSignerCA {
+				g.Expect(args).To(ContainElement(fmt.Sprintf("--kube-ca=%s/signer-ca.crt", configDir)))
+				g.Expect(args).NotTo(ContainElement(ContainSubstring("root-ca.crt")))
+			}
+
+			if tt.expectRootCA {
+				g.Expect(args).To(ContainElement(fmt.Sprintf("--kube-ca=%s/root-ca.crt", configDir)))
+				g.Expect(args).NotTo(ContainElement(ContainSubstring("signer-ca.crt")))
+			}
+
+			if tt.expectLegacyImageFlags {
+				g.Expect(args).To(ContainElement(fmt.Sprintf("--machine-config-operator-image=%s", getImage("machine-config-operator"))))
+				g.Expect(args).To(ContainElement(fmt.Sprintf("--infra-image=%s", getImage("pod"))))
+				g.Expect(args).To(ContainElement(fmt.Sprintf("--haproxy-image=%s", getImage("haproxy"))))
+			} else {
+				g.Expect(args).NotTo(ContainElement(ContainSubstring("--machine-config-operator-image=")))
+			}
+		})
+	}
 }
