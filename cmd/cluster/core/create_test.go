@@ -753,3 +753,137 @@ func TestValidateVersion(t *testing.T) {
 		})
 	}
 }
+
+func TestGetServicePublishingStrategyMapping(t *testing.T) {
+	t.Parallel()
+
+	deprecatedServiceTypes := []hyperv1.ServiceType{
+		hyperv1.OVNSbDb,
+	}
+
+	requiredServiceTypes := []hyperv1.ServiceType{
+		hyperv1.APIServer,
+		hyperv1.OAuthServer,
+		hyperv1.Konnectivity,
+		hyperv1.Ignition,
+	}
+
+	requiredServiceTypesForAPIServerAddress := []hyperv1.ServiceType{
+		hyperv1.APIServer,
+		hyperv1.OAuthServer,
+		hyperv1.OIDC,
+		hyperv1.Konnectivity,
+		hyperv1.Ignition,
+	}
+
+	testAPIServerAddress := "192.168.1.1"
+
+	tests := []struct {
+		name             string
+		services         []hyperv1.ServicePublishingStrategyMapping
+		checkDeprecated  bool
+		checkRequired    bool
+		requiredTypes    []hyperv1.ServiceType
+		checkStrategy    bool
+		expectedStrategy hyperv1.PublishingStrategyType
+		expectedAddress  string
+	}{
+		{
+			name:            "When GetIngressServicePublishingStrategyMapping is called with OVNKubernetes, it should not include deprecated service types",
+			services:        GetIngressServicePublishingStrategyMapping(hyperv1.OVNKubernetes, false),
+			checkDeprecated: true,
+		},
+		{
+			name:            "When GetIngressServicePublishingStrategyMapping is called with Other network type, it should not include deprecated service types",
+			services:        GetIngressServicePublishingStrategyMapping(hyperv1.Other, false),
+			checkDeprecated: true,
+		},
+		{
+			name:            "When GetServicePublishingStrategyMappingByAPIServerAddress is called with OVNKubernetes, it should not include deprecated service types",
+			services:        GetServicePublishingStrategyMappingByAPIServerAddress(testAPIServerAddress, hyperv1.OVNKubernetes),
+			checkDeprecated: true,
+		},
+		{
+			name:            "When GetServicePublishingStrategyMappingByAPIServerAddress is called with Other network type, it should not include deprecated service types",
+			services:        GetServicePublishingStrategyMappingByAPIServerAddress(testAPIServerAddress, hyperv1.Other),
+			checkDeprecated: true,
+		},
+		{
+			name:          "When GetIngressServicePublishingStrategyMapping is called, it should include all required service types",
+			services:      GetIngressServicePublishingStrategyMapping(hyperv1.Other, false),
+			checkRequired: true,
+			requiredTypes: requiredServiceTypes,
+		},
+		{
+			name:          "When GetServicePublishingStrategyMappingByAPIServerAddress is called, it should include all required service types",
+			services:      GetServicePublishingStrategyMappingByAPIServerAddress(testAPIServerAddress, hyperv1.Other),
+			checkRequired: true,
+			requiredTypes: requiredServiceTypesForAPIServerAddress,
+		},
+		{
+			name:             "When GetServicePublishingStrategyMappingByAPIServerAddress is called, it should use NodePort strategy with the given address",
+			services:         GetServicePublishingStrategyMappingByAPIServerAddress(testAPIServerAddress, hyperv1.OVNKubernetes),
+			checkStrategy:    true,
+			expectedStrategy: hyperv1.NodePort,
+			expectedAddress:  testAPIServerAddress,
+		},
+		{
+			name:             "When GetIngressServicePublishingStrategyMapping is called without external DNS, it should use LoadBalancer for APIServer",
+			services:         GetIngressServicePublishingStrategyMapping(hyperv1.OVNKubernetes, false),
+			checkStrategy:    true,
+			expectedStrategy: hyperv1.LoadBalancer,
+		},
+		{
+			name:             "When GetIngressServicePublishingStrategyMapping is called with external DNS, it should use Route for APIServer",
+			services:         GetIngressServicePublishingStrategyMapping(hyperv1.OVNKubernetes, true),
+			checkStrategy:    true,
+			expectedStrategy: hyperv1.Route,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			g := NewWithT(t)
+
+			if tc.checkDeprecated {
+				for _, svc := range tc.services {
+					for _, deprecated := range deprecatedServiceTypes {
+						g.Expect(svc.Service).NotTo(Equal(deprecated),
+							"service list should not contain deprecated service type %s", deprecated)
+					}
+				}
+			}
+
+			if tc.checkRequired {
+				serviceTypes := make(map[hyperv1.ServiceType]bool)
+				for _, svc := range tc.services {
+					serviceTypes[svc.Service] = true
+				}
+				for _, required := range tc.requiredTypes {
+					g.Expect(serviceTypes).To(HaveKey(required),
+						"service list should include required service type %s", required)
+				}
+			}
+
+			if tc.checkStrategy {
+				g.Expect(tc.services).NotTo(BeEmpty(), "service list should not be empty")
+				// Find APIServer entry to check its strategy
+				foundAPIServer := false
+				for _, svc := range tc.services {
+					if svc.Service == hyperv1.APIServer {
+						foundAPIServer = true
+						g.Expect(svc.ServicePublishingStrategy.Type).To(Equal(tc.expectedStrategy),
+							"APIServer should use %s strategy", tc.expectedStrategy)
+						if tc.expectedAddress != "" {
+							g.Expect(svc.ServicePublishingStrategy.NodePort).NotTo(BeNil(),
+								"NodePort config should not be nil")
+							g.Expect(svc.ServicePublishingStrategy.NodePort.Address).To(Equal(tc.expectedAddress),
+								"NodePort address should match the provided API server address")
+						}
+					}
+				}
+				g.Expect(foundAPIServer).To(BeTrue(), "service list should include APIServer")
+			}
+		})
+	}
+}
