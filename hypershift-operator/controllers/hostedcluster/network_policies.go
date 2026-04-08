@@ -163,6 +163,15 @@ func (r *HostedClusterReconciler) reconcileNetworkPolicies(ctx context.Context, 
 					return fmt.Errorf("failed to reconcile oauth server nodeport network policy: %w", err)
 				}
 			}
+			if svc.ServicePublishingStrategy.Type == hyperv1.LoadBalancer {
+				// Reconcile loadbalancer-oauth Network Policy
+				policy = networkpolicy.LoadBalancerOauthNetworkPolicy(controlPlaneNamespaceName)
+				if _, err := createOrUpdate(ctx, r.Client, policy, func() error {
+					return reconcileLoadBalancerOauthNetworkPolicy(policy)
+				}); err != nil {
+					return fmt.Errorf("failed to reconcile oauth server loadbalancer network policy: %w", err)
+				}
+			}
 		case hyperv1.Ignition:
 			if svc.ServicePublishingStrategy.Type == hyperv1.NodePort {
 				// Reconcile nodeport-ignition Network Policy
@@ -373,6 +382,29 @@ func reconcilePrivateRouterNetworkPolicy(policy *networkingv1.NetworkPolicy, hcl
 }
 
 func reconcileNodePortOauthNetworkPolicy(policy *networkingv1.NetworkPolicy, hcluster *hyperv1.HostedCluster) error {
+	port := intstr.FromInt(6443)
+	protocol := corev1.ProtocolTCP
+	policy.Spec.Ingress = []networkingv1.NetworkPolicyIngressRule{
+		{
+			From: []networkingv1.NetworkPolicyPeer{},
+			Ports: []networkingv1.NetworkPolicyPort{
+				{
+					Port:     &port,
+					Protocol: &protocol,
+				},
+			},
+		},
+	}
+	policy.Spec.PodSelector = metav1.LabelSelector{
+		MatchLabels: map[string]string{
+			"app": "oauth-openshift",
+		},
+	}
+	policy.Spec.PolicyTypes = []networkingv1.PolicyType{networkingv1.PolicyTypeIngress}
+	return nil
+}
+
+func reconcileLoadBalancerOauthNetworkPolicy(policy *networkingv1.NetworkPolicy) error {
 	port := intstr.FromInt(6443)
 	protocol := corev1.ProtocolTCP
 	policy.Spec.Ingress = []networkingv1.NetworkPolicyIngressRule{

@@ -192,10 +192,18 @@ func (r *AzurePrivateLinkServiceObserver) reconcileAzurePrivateLinkService(ctx c
 func baseDomainFromServices(services []hyperv1.ServicePublishingStrategyMapping, clusterName string) string {
 	prefix := oauthBaseDomainRecordPrefix + clusterName + "."
 	for _, svc := range services {
-		if svc.Service == hyperv1.OAuthServer && svc.ServicePublishingStrategy.Route != nil && svc.ServicePublishingStrategy.Route.Hostname != "" {
-			hostname := svc.ServicePublishingStrategy.Route.Hostname
-			if strings.HasPrefix(hostname, prefix) {
-				return strings.TrimPrefix(hostname, prefix)
+		if svc.Service == hyperv1.OAuthServer {
+			// Check Route hostname
+			if svc.ServicePublishingStrategy.Route != nil && svc.ServicePublishingStrategy.Route.Hostname != "" {
+				if domain, ok := strings.CutPrefix(svc.ServicePublishingStrategy.Route.Hostname, prefix); ok {
+					return domain
+				}
+			}
+			// Check LoadBalancer hostname
+			if svc.ServicePublishingStrategy.LoadBalancer != nil && svc.ServicePublishingStrategy.LoadBalancer.Hostname != "" {
+				if domain, ok := strings.CutPrefix(svc.ServicePublishingStrategy.LoadBalancer.Hostname, prefix); ok {
+					return domain
+				}
 			}
 		}
 	}

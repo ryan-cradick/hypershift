@@ -192,6 +192,19 @@ func TestReconcile(t *testing.T) {
 			expectPLSCreated: false,
 		},
 		{
+			name:        "When service has no OwnerReference, it should return an error",
+			serviceName: testServiceName,
+			requestName: testServiceName,
+			service: func() *corev1.Service {
+				svc := defaultService()
+				svc.OwnerReferences = nil
+				return svc
+			}(),
+			hcp:              defaultHCP(),
+			expectError:      true,
+			expectPLSCreated: false,
+		},
+		{
 			name:        "When CR already exists, it should update loadBalancerIP",
 			serviceName: testServiceName,
 			requestName: testServiceName,
@@ -312,6 +325,83 @@ func TestReconcile(t *testing.T) {
 					g.Expect(azurePLSList.Items).To(BeEmpty())
 				}
 			}
+		})
+	}
+}
+
+func TestBaseDomainFromServices(t *testing.T) {
+	t.Parallel()
+
+	const clusterName = "my-cluster"
+
+	tests := []struct {
+		name     string
+		services []hyperv1.ServicePublishingStrategyMapping
+		expected string
+	}{
+		{
+			name: "When OAuth uses Route with hostname, it should extract base domain from route hostname",
+			services: []hyperv1.ServicePublishingStrategyMapping{
+				{
+					Service: hyperv1.OAuthServer,
+					ServicePublishingStrategy: hyperv1.ServicePublishingStrategy{
+						Route: &hyperv1.RoutePublishingStrategy{
+							Hostname: "oauth-my-cluster.example.hypershift.com",
+						},
+					},
+				},
+			},
+			expected: "example.hypershift.com",
+		},
+		{
+			name: "When OAuth uses LoadBalancer with hostname, it should extract base domain from LB hostname",
+			services: []hyperv1.ServicePublishingStrategyMapping{
+				{
+					Service: hyperv1.OAuthServer,
+					ServicePublishingStrategy: hyperv1.ServicePublishingStrategy{
+						LoadBalancer: &hyperv1.LoadBalancerPublishingStrategy{
+							Hostname: "oauth-my-cluster.lb.example.com",
+						},
+					},
+				},
+			},
+			expected: "lb.example.com",
+		},
+		{
+			name: "When OAuth has no hostname on either Route or LoadBalancer, it should return empty string",
+			services: []hyperv1.ServicePublishingStrategyMapping{
+				{
+					Service: hyperv1.OAuthServer,
+					ServicePublishingStrategy: hyperv1.ServicePublishingStrategy{
+						Route:        &hyperv1.RoutePublishingStrategy{},
+						LoadBalancer: &hyperv1.LoadBalancerPublishingStrategy{},
+					},
+				},
+			},
+			expected: "",
+		},
+		{
+			name: "When no OAuthServer service exists, it should return empty string",
+			services: []hyperv1.ServicePublishingStrategyMapping{
+				{
+					Service: hyperv1.APIServer,
+					ServicePublishingStrategy: hyperv1.ServicePublishingStrategy{
+						Route: &hyperv1.RoutePublishingStrategy{
+							Hostname: "oauth-my-cluster.example.com",
+						},
+					},
+				},
+			},
+			expected: "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			g := NewWithT(t)
+			result := baseDomainFromServices(tt.services, clusterName)
+			g.Expect(result).To(Equal(tt.expected))
 		})
 	}
 }

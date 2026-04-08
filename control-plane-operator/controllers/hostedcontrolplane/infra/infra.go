@@ -346,11 +346,26 @@ func (r *Reconciler) reconcileOAuthServerService(ctx context.Context, hcp *hyper
 	p := oauth.NewOAuthServiceParams(hcp)
 	oauthServerService := manifests.OauthServerService(hcp.Namespace)
 	if _, err := createOrUpdate(ctx, r.Client, oauthServerService, func() error {
-		return oauth.ReconcileService(oauthServerService, p.OwnerRef, serviceStrategy, hcp.Spec.Platform.Type)
+		if err := oauth.ReconcileService(oauthServerService, p.OwnerRef, serviceStrategy, hcp.Spec.Platform.Type); err != nil {
+			return err
+		}
+		// For private Azure topology, annotate the OAuth service as an internal LB
+		if serviceStrategy.Type == hyperv1.LoadBalancer && hcp.Spec.Platform.Type == hyperv1.AzurePlatform && !util.IsPublicHCP(hcp) {
+			if oauthServerService.Annotations == nil {
+				oauthServerService.Annotations = map[string]string{}
+			}
+			oauthServerService.Annotations[hyperazureutil.InternalLoadBalancerAnnotation] = hyperazureutil.InternalLoadBalancerValue
+		}
+		return nil
 	}); err != nil {
 		return fmt.Errorf("failed to reconcile OAuth service: %w", err)
 	}
-	if serviceStrategy.Type != hyperv1.Route {
+	switch serviceStrategy.Type {
+	case hyperv1.LoadBalancer:
+		return nil
+	case hyperv1.Route:
+		// Continue with Route reconciliation below
+	default:
 		return nil
 	}
 	oauthExternalPublicRoute := manifests.OauthServerExternalPublicRoute(hcp.Namespace)
@@ -616,6 +631,9 @@ func (r *Reconciler) reconcileOAuthServiceStatus(ctx context.Context, hcp *hyper
 		}
 		err = fmt.Errorf("failed to get oauth service: %w", err)
 		return
+	}
+	if serviceStrategy.Type == hyperv1.LoadBalancer {
+		return oauth.ReconcileServiceStatus(svc, nil, serviceStrategy)
 	}
 	if serviceStrategy.Type == hyperv1.Route {
 		if util.IsPublicHCP(hcp) {
