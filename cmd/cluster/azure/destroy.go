@@ -6,7 +6,9 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
+	hyperv1 "github.com/openshift/hypershift/api/hypershift/v1beta1"
 	"github.com/openshift/hypershift/cmd/cluster/core"
 	azureinfra "github.com/openshift/hypershift/cmd/infra/azure"
 	"github.com/openshift/hypershift/cmd/log"
@@ -21,6 +23,11 @@ import (
 	"k8s.io/apimachinery/pkg/util/errors"
 
 	"github.com/spf13/cobra"
+)
+
+const (
+	defaultClusterGracePeriod = 10 * time.Minute
+	privateClusterGracePeriod = 20 * time.Minute
 )
 
 func NewDestroyCommand(opts *core.DestroyOptions) *cobra.Command {
@@ -59,20 +66,43 @@ func NewDestroyCommand(opts *core.DestroyOptions) *cobra.Command {
 	return cmd
 }
 
+func applyHostedClusterToDestroyOptions(o *core.DestroyOptions, hostedCluster *hyperv1.HostedCluster) error {
+	if hostedCluster == nil {
+		if o.AzurePlatform.Cloud == "" {
+			o.AzurePlatform.Cloud = config.DefaultAzureCloud
+		}
+		return nil
+	}
+	if hostedCluster.Spec.Platform.Azure == nil {
+		return fmt.Errorf("hostedcluster %s/%s is not an Azure platform cluster", hostedCluster.Namespace, hostedCluster.Name)
+	}
+	azureSpec := hostedCluster.Spec.Platform.Azure
+	o.InfraID = hostedCluster.Spec.InfraID
+	o.AzurePlatform.Location = azureSpec.Location
+	o.AzurePlatform.Cloud = config.DefaultAzureCloud
+	if azureSpec.Cloud != "" {
+		o.AzurePlatform.Cloud = azureSpec.Cloud
+	}
+
+	// Increase grace period for private topology clusters which require more
+	// cleanup time (Private Link Services, DNS zones, VNet links, etc).
+	// Only override if the user hasn't explicitly set a custom value.
+	topology := azureSpec.Topology
+	if (topology == hyperv1.AzureTopologyPrivate || topology == hyperv1.AzureTopologyPublicAndPrivate) &&
+		o.ClusterGracePeriod == defaultClusterGracePeriod {
+		o.ClusterGracePeriod = privateClusterGracePeriod
+	}
+	return nil
+}
+
 func DestroyCluster(ctx context.Context, o *core.DestroyOptions) error {
 	hostedCluster, err := core.GetCluster(ctx, o)
 	if err != nil {
 		return err
 	}
 
-	// Get cloud configuration from HostedCluster if available, default to DefaultAzureCloud
-	cloudName := config.DefaultAzureCloud
-	if hostedCluster != nil {
-		o.InfraID = hostedCluster.Spec.InfraID
-		o.AzurePlatform.Location = hostedCluster.Spec.Platform.Azure.Location
-		if hostedCluster.Spec.Platform.Azure.Cloud != "" {
-			cloudName = hostedCluster.Spec.Platform.Azure.Cloud
-		}
+	if err := applyHostedClusterToDestroyOptions(o, hostedCluster); err != nil {
+		return err
 	}
 
 	var inputErrors []error
@@ -95,7 +125,7 @@ func DestroyCluster(ctx context.Context, o *core.DestroyOptions) error {
 		}
 
 		// Setup cloud configuration
-		cloudConfig, err := azureutil.GetAzureCloudConfiguration(cloudName)
+		cloudConfig, err := azureutil.GetAzureCloudConfiguration(o.AzurePlatform.Cloud)
 		if err != nil {
 			return fmt.Errorf("failed to get Azure cloud configuration: %w", err)
 		}
@@ -123,6 +153,7 @@ func destroyPlatformSpecifics(ctx context.Context, o *core.DestroyOptions) error
 		Location:              o.AzurePlatform.Location,
 		InfraID:               o.InfraID,
 		CredentialsFile:       o.AzurePlatform.CredentialsFile,
+		Cloud:                 o.AzurePlatform.Cloud,
 		ResourceGroupName:     o.AzurePlatform.ResourceGroupName,
 		PreserveResourceGroup: o.AzurePlatform.PreserveResourceGroup,
 	}
