@@ -1079,9 +1079,6 @@ func (o HyperShiftOperatorService) Build() *corev1.Service {
 			Labels: map[string]string{
 				"name": HypershiftOperatorName,
 			},
-			Annotations: map[string]string{
-				"service.beta.openshift.io/serving-cert-secret-name": "manager-serving-cert",
-			},
 		},
 		Spec: corev1.ServiceSpec{
 			Type: corev1.ServiceTypeClusterIP,
@@ -2089,6 +2086,7 @@ func (o HyperShiftReaderClusterRoleBinding) Build() *rbacv1.ClusterRoleBinding {
 type HyperShiftMutatingWebhookConfiguration struct {
 	Namespace                 *corev1.Namespace
 	EnableAuditLogPersistence bool
+	CABundle                  []byte
 }
 
 const (
@@ -2109,9 +2107,6 @@ func (o HyperShiftMutatingWebhookConfiguration) Build() *admissionregistrationv1
 		ObjectMeta: metav1.ObjectMeta{
 			Namespace: o.Namespace.Name,
 			Name:      hyperv1.GroupVersion.Group,
-			Annotations: map[string]string{
-				"service.beta.openshift.io/inject-cabundle": "true",
-			},
 		},
 		Webhooks: []admissionregistrationv1.MutatingWebhook{
 			{
@@ -2130,6 +2125,7 @@ func (o HyperShiftMutatingWebhookConfiguration) Build() *admissionregistrationv1
 					},
 				},
 				ClientConfig: admissionregistrationv1.WebhookClientConfig{
+					CABundle: o.CABundle,
 					Service: &admissionregistrationv1.ServiceReference{
 						Namespace: "hypershift",
 						Name:      "operator",
@@ -2156,6 +2152,7 @@ func (o HyperShiftMutatingWebhookConfiguration) Build() *admissionregistrationv1
 					},
 				},
 				ClientConfig: admissionregistrationv1.WebhookClientConfig{
+					CABundle: o.CABundle,
 					Service: &admissionregistrationv1.ServiceReference{
 						Namespace: "hypershift",
 						Name:      "operator",
@@ -2196,6 +2193,7 @@ func (o HyperShiftMutatingWebhookConfiguration) Build() *admissionregistrationv1
 					},
 				},
 				ClientConfig: admissionregistrationv1.WebhookClientConfig{
+					CABundle: o.CABundle,
 					Service: &admissionregistrationv1.ServiceReference{
 						Namespace: "hypershift",
 						Name:      "operator",
@@ -2225,6 +2223,7 @@ func (o HyperShiftMutatingWebhookConfiguration) Build() *admissionregistrationv1
 					},
 				},
 				ClientConfig: admissionregistrationv1.WebhookClientConfig{
+					CABundle: o.CABundle,
 					Service: &admissionregistrationv1.ServiceReference{
 						Namespace: "hypershift",
 						Name:      "operator",
@@ -2245,6 +2244,7 @@ func (o HyperShiftMutatingWebhookConfiguration) Build() *admissionregistrationv1
 
 type HyperShiftValidatingWebhookConfiguration struct {
 	Namespace string
+	CABundle  []byte
 }
 
 func (o HyperShiftValidatingWebhookConfiguration) Build() *admissionregistrationv1.ValidatingWebhookConfiguration {
@@ -2262,9 +2262,6 @@ func (o HyperShiftValidatingWebhookConfiguration) Build() *admissionregistration
 		ObjectMeta: metav1.ObjectMeta{
 			Namespace: o.Namespace,
 			Name:      hyperv1.GroupVersion.Group,
-			Annotations: map[string]string{
-				"service.beta.openshift.io/inject-cabundle": "true",
-			},
 		},
 		Webhooks: []admissionregistrationv1.ValidatingWebhook{
 			{
@@ -2284,6 +2281,7 @@ func (o HyperShiftValidatingWebhookConfiguration) Build() *admissionregistration
 					},
 				},
 				ClientConfig: admissionregistrationv1.WebhookClientConfig{
+					CABundle: o.CABundle,
 					Service: &admissionregistrationv1.ServiceReference{
 						Namespace: "hypershift",
 						Name:      "operator",
@@ -2312,6 +2310,7 @@ func (o HyperShiftValidatingWebhookConfiguration) Build() *admissionregistration
 					},
 				},
 				ClientConfig: admissionregistrationv1.WebhookClientConfig{
+					CABundle: o.CABundle,
 					Service: &admissionregistrationv1.ServiceReference{
 						Namespace: "hypershift",
 						Name:      "operator",
