@@ -96,8 +96,8 @@ func (c *CertificateSigningController) syncCertificateSigningRequest(ctx context
 			syncContext.Recorder().Eventf("CertificateSigningRequestValid", "%q is valid", name)
 		}
 		_, err := c.kubeClient.CertificatesV1().CertificateSigningRequests().ApplyStatus(ctx, cfg, metav1.ApplyOptions{FieldManager: c.fieldManager})
-		if err != nil && validationErr == nil {
-			syncContext.Recorder().Eventf("CertificateSigningRequestFulfilled", "%q in %q is fulfilled", name)
+		if err == nil && validationErr == nil {
+			syncContext.Recorder().Eventf("CertificateSigningRequestFulfilled", "%q is fulfilled", name)
 		}
 		return err
 	}
