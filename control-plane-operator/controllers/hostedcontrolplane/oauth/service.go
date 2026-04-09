@@ -5,6 +5,7 @@ import (
 	"time"
 
 	hyperv1 "github.com/openshift/hypershift/api/hypershift/v1beta1"
+	azureutil "github.com/openshift/hypershift/support/azureutil"
 	"github.com/openshift/hypershift/support/config"
 
 	routev1 "github.com/openshift/api/route/v1"
@@ -26,7 +27,7 @@ var (
 	}
 )
 
-func ReconcileService(svc *corev1.Service, ownerRef config.OwnerRef, strategy *hyperv1.ServicePublishingStrategy, platformType hyperv1.PlatformType) error {
+func ReconcileService(svc *corev1.Service, ownerRef config.OwnerRef, strategy *hyperv1.ServicePublishingStrategy, platformType hyperv1.PlatformType, isPrivate bool) error {
 	ownerRef.ApplyTo(svc)
 	if svc.Spec.Selector == nil {
 		svc.Spec.Selector = oauthServerLabels
@@ -64,11 +65,16 @@ func ReconcileService(svc *corev1.Service, ownerRef config.OwnerRef, strategy *h
 		// the management cluster's KAS on the shared Azure internal load balancer.
 		// The target port remains 6443 as that is what the OAuth server pod listens on.
 		portSpec.Port = int32(RouteExternalPort)
+		if svc.Annotations == nil {
+			svc.Annotations = map[string]string{}
+		}
 		if strategy.LoadBalancer != nil && strategy.LoadBalancer.Hostname != "" {
-			if svc.Annotations == nil {
-				svc.Annotations = map[string]string{}
-			}
 			svc.Annotations[hyperv1.ExternalDNSHostnameAnnotation] = strategy.LoadBalancer.Hostname
+		}
+		if isPrivate {
+			svc.Annotations[azureutil.InternalLoadBalancerAnnotation] = azureutil.InternalLoadBalancerValue
+		} else {
+			delete(svc.Annotations, azureutil.InternalLoadBalancerAnnotation)
 		}
 	default:
 		return fmt.Errorf("invalid publishing strategy for OAuth service: %s", strategy.Type)
