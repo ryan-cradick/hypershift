@@ -34,6 +34,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
+
+	"github.com/go-logr/logr"
 )
 
 const (
@@ -43,6 +45,14 @@ const (
 	ServingCertSecretName = "manager-serving-cert"
 
 	requeueInterval = 12 * time.Hour
+
+	// service-ca annotations used on the operator Service to trigger cert generation.
+	serviceCABetaAnnotation  = "service.beta.openshift.io/serving-cert-secret-name"
+	serviceCAAlphaAnnotation = "service.alpha.openshift.io/serving-cert-secret-name"
+
+	// service-ca annotations placed on secrets it creates.
+	originatingServiceBetaAnnotation  = "service.beta.openshift.io/originating-service-name"
+	originatingServiceAlphaAnnotation = "service.alpha.openshift.io/originating-service-name"
 )
 
 // WebhookCertReconciler reconciles the self-managed webhook CA and serving cert.
@@ -69,6 +79,15 @@ func (r *WebhookCertReconciler) SetupWithManager(mgr ctrl.Manager, createOrUpdat
 
 func (r *WebhookCertReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	log := ctrl.LoggerFrom(ctx)
+
+	// 0. Handle upgrade from service-ca managed certs.
+	// On existing OpenShift clusters, the service-ca operator may have created the
+	// serving cert secret and annotated the Service. We must remove these before
+	// reconciling our own certs, otherwise service-ca will keep overwriting the secret
+	// with a cert signed by a different CA than the one we inject into webhook configs.
+	if err := r.removeServiceCAResources(ctx, log); err != nil {
+		return ctrl.Result{}, err
+	}
 
 	// 1. Reconcile the self-signed CA.
 	caSecret := &corev1.Secret{
@@ -201,6 +220,58 @@ func (r *WebhookCertReconciler) patchWebhookConfigsCABundle(ctx context.Context,
 	}
 
 	return nil
+}
+
+// removeServiceCAResources handles the upgrade from service-ca managed certs to self-managed certs.
+// It removes the service-ca annotations from the operator Service and deletes the serving cert
+// secret if it was created by service-ca, so the reconciler can recreate it with the self-managed CA.
+func (r *WebhookCertReconciler) removeServiceCAResources(ctx context.Context, log logr.Logger) error {
+	svc := &corev1.Service{}
+	if err := r.Client.Get(ctx, client.ObjectKey{Namespace: r.Namespace, Name: r.ServiceName}, svc); err != nil {
+		if !apierrors.IsNotFound(err) {
+			return fmt.Errorf("failed to get operator service: %w", err)
+		}
+	} else {
+		changed := false
+		for _, annotation := range []string{serviceCABetaAnnotation, serviceCAAlphaAnnotation} {
+			if _, ok := svc.Annotations[annotation]; ok {
+				delete(svc.Annotations, annotation)
+				changed = true
+			}
+		}
+		if changed {
+			if err := r.Client.Update(ctx, svc); err != nil {
+				return fmt.Errorf("failed to remove service-ca annotations from operator service: %w", err)
+			}
+			log.Info("Removed service-ca annotations from operator service")
+		}
+	}
+
+	// If the existing serving cert secret was created by service-ca, delete it
+	// so we can recreate it signed by our self-managed CA.
+	existingSecret := &corev1.Secret{}
+	if err := r.Client.Get(ctx, client.ObjectKey{Namespace: r.Namespace, Name: ServingCertSecretName}, existingSecret); err != nil {
+		if !apierrors.IsNotFound(err) {
+			return fmt.Errorf("failed to get existing serving cert secret: %w", err)
+		}
+	} else if isServiceCAManaged(existingSecret) {
+		if err := r.Client.Delete(ctx, existingSecret); err != nil && !apierrors.IsNotFound(err) {
+			return fmt.Errorf("failed to delete service-ca managed serving cert secret: %w", err)
+		}
+		log.Info("Deleted service-ca managed serving cert secret")
+	}
+
+	return nil
+}
+
+// isServiceCAManaged returns true if the secret was created by the service-ca operator.
+func isServiceCAManaged(secret *corev1.Secret) bool {
+	if secret.Annotations == nil {
+		return false
+	}
+	_, hasBeta := secret.Annotations[originatingServiceBetaAnnotation]
+	_, hasAlpha := secret.Annotations[originatingServiceAlphaAnnotation]
+	return hasBeta || hasAlpha
 }
 
 // webhookDNSNames returns the DNS names for the webhook serving cert.
