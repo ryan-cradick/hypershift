@@ -140,6 +140,70 @@ func TestComputeCatalogImages(t *testing.T) {
 			},
 		},
 		{
+			name:           "When version is 5.0, it should be capped to 4.21 catalog images",
+			releaseVersion: semver.MustParse("5.0.0"),
+			existingImages: []string{
+				"registry.redhat.io/redhat/certified-operator-index:v4.21",
+				"registry.redhat.io/redhat/community-operator-index:v4.21",
+				"registry.redhat.io/redhat/redhat-marketplace-index:v4.21",
+				"registry.redhat.io/redhat/redhat-operator-index:v4.21",
+			},
+			expected: map[string]string{
+				"certified-operators": "registry.redhat.io/redhat/certified-operator-index:v4.21",
+				"community-operators": "registry.redhat.io/redhat/community-operator-index:v4.21",
+				"redhat-marketplace":  "registry.redhat.io/redhat/redhat-marketplace-index:v4.21",
+				"redhat-operators":    "registry.redhat.io/redhat/redhat-operator-index:v4.21",
+			},
+		},
+		{
+			name:           "When version is 5.0 nightly, it should be capped to 4.21 catalog images",
+			releaseVersion: semver.MustParse("5.0.0-0.nightly-multi-2026-04-07-214955"),
+			existingImages: []string{
+				"registry.redhat.io/redhat/certified-operator-index:v4.21",
+				"registry.redhat.io/redhat/community-operator-index:v4.21",
+				"registry.redhat.io/redhat/redhat-marketplace-index:v4.21",
+				"registry.redhat.io/redhat/redhat-operator-index:v4.21",
+			},
+			expected: map[string]string{
+				"certified-operators": "registry.redhat.io/redhat/certified-operator-index:v4.21",
+				"community-operators": "registry.redhat.io/redhat/community-operator-index:v4.21",
+				"redhat-marketplace":  "registry.redhat.io/redhat/redhat-marketplace-index:v4.21",
+				"redhat-operators":    "registry.redhat.io/redhat/redhat-operator-index:v4.21",
+			},
+		},
+		{
+			name:           "When version is 5.0 and 4.21 not available, it should fall back to earlier versions",
+			releaseVersion: semver.MustParse("5.0.0"),
+			existingImages: []string{
+				"registry.redhat.io/redhat/certified-operator-index:v4.19",
+				"registry.redhat.io/redhat/community-operator-index:v4.19",
+				"registry.redhat.io/redhat/redhat-marketplace-index:v4.19",
+				"registry.redhat.io/redhat/redhat-operator-index:v4.19",
+			},
+			expected: map[string]string{
+				"certified-operators": "registry.redhat.io/redhat/certified-operator-index:v4.19",
+				"community-operators": "registry.redhat.io/redhat/community-operator-index:v4.19",
+				"redhat-marketplace":  "registry.redhat.io/redhat/redhat-marketplace-index:v4.19",
+				"redhat-operators":    "registry.redhat.io/redhat/redhat-operator-index:v4.19",
+			},
+		},
+		{
+			name:           "When version is 4.22, it should be capped to 4.21 catalog images",
+			releaseVersion: semver.MustParse("4.22.0"),
+			existingImages: []string{
+				"registry.redhat.io/redhat/certified-operator-index:v4.21",
+				"registry.redhat.io/redhat/community-operator-index:v4.21",
+				"registry.redhat.io/redhat/redhat-marketplace-index:v4.21",
+				"registry.redhat.io/redhat/redhat-operator-index:v4.21",
+			},
+			expected: map[string]string{
+				"certified-operators": "registry.redhat.io/redhat/certified-operator-index:v4.21",
+				"community-operators": "registry.redhat.io/redhat/community-operator-index:v4.21",
+				"redhat-marketplace":  "registry.redhat.io/redhat/redhat-marketplace-index:v4.21",
+				"redhat-operators":    "registry.redhat.io/redhat/redhat-operator-index:v4.21",
+			},
+		},
+		{
 			name:           "overrides with root registry only",
 			releaseVersion: semver.MustParse("4.19.0"),
 			existingImages: []string{
