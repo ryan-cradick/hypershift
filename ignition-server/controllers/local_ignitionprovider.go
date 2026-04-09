@@ -384,7 +384,7 @@ func (p *LocalIgnitionProvider) GetPayload(ctx context.Context, releaseImage, cu
 	clusterConfigComponentShort := "cca"
 	clusterConfigFile := "usr/bin/render"
 
-	if payloadVersion.Major == 4 && payloadVersion.Minor < 15 {
+	if payloadVersion.LT(semver.Version{Major: 4, Minor: 15}) {
 		clusterConfigComponent = "cluster-config-operator"
 		clusterConfigComponentShort = "cco"
 		clusterConfigFile = "usr/bin/cluster-config-operator"
@@ -507,33 +507,7 @@ func (p *LocalIgnitionProvider) GetPayload(ctx context.Context, releaseImage, cu
 		}
 
 		// Depending on the version, we need different args.
-		switch y := payloadVersion.Minor; {
-		case y >= 14:
-			args = append(args,
-				fmt.Sprintf("--payload-version=%s", imageProvider.Version()),
-			)
-			// We need to include 4.13 plus args here too.
-			fallthrough
-		case y >= 13:
-			args = append(args,
-				fmt.Sprintf("--image-references=%s", path.Join(configDir, "release-manifests", "image-references")),
-				fmt.Sprintf("--kube-ca=%s/signer-ca.crt", configDir),
-			)
-		case y <= 12:
-			// when the CPO is at N and the NodePool.spec.release at N-1
-			// we fail to render ignition payload because https://github.com/openshift/machine-config-operator/pull/3286
-			// broke backward compatibility.
-			args = append(args,
-				fmt.Sprintf("--machine-config-operator-image=%s", imageProvider.GetImage("machine-config-operator")),
-				fmt.Sprintf("--machine-config-oscontent-image=%s", imageProvider.GetImage("machine-os-content")),
-				fmt.Sprintf("--infra-image=%s", imageProvider.GetImage("pod")),
-				fmt.Sprintf("--keepalived-image=%s", imageProvider.GetImage("keepalived-ipfailover")),
-				fmt.Sprintf("--coredns-image=%s", imageProvider.GetImage("codedns")),
-				fmt.Sprintf("--haproxy-image=%s", imageProvider.GetImage("haproxy")),
-				fmt.Sprintf("--baremetal-runtimecfg-image=%s", imageProvider.GetImage("baremetal-runtimecfg")),
-				fmt.Sprintf("--kube-ca=%s/root-ca.crt", configDir),
-			)
-		}
+		args = append(args, buildMCOVersionArgs(payloadVersion, imageProvider.Version(), imageProvider.GetImage, configDir)...)
 
 		if image, exists := imageProvider.ImageExist("mdns-publisher"); exists {
 			args = append(args, fmt.Sprintf("--mdns-publisher-image=%s", image))
@@ -618,7 +592,7 @@ func (p *LocalIgnitionProvider) GetPayload(ctx context.Context, releaseImage, cu
 		}
 
 		// For 4.14 onwards there's a requirement to include the payload version flag.
-		if payloadVersion.Minor >= 14 {
+		if payloadVersion.GTE(semver.Version{Major: 4, Minor: 14}) {
 			args = append(args,
 				fmt.Sprintf("--payload-version=%s", imageProvider.Version()),
 			)
@@ -665,7 +639,7 @@ func (p *LocalIgnitionProvider) GetPayload(ctx context.Context, releaseImage, cu
 		}
 
 		// For 4.14 onwards there's a requirement to include the payload version flag.
-		if payloadVersion.Minor >= 14 {
+		if payloadVersion.GTE(semver.Version{Major: 4, Minor: 14}) {
 			args = append(args,
 				fmt.Sprintf("--payload-version=%s", imageProvider.Version()),
 			)
@@ -809,7 +783,7 @@ cp %[2]s/manifests/99_feature-gate.yaml %[3]s/99_feature-gate.yaml
 `
 
 	// Depending on the version, we need different args.
-	if payloadVersion.Major == 4 && payloadVersion.Minor < 15 {
+	if payloadVersion.LT(semver.Version{Major: 4, Minor: 15}) {
 		script = `#!/bin/bash
 set -e
 mkdir -p %[2]s
@@ -830,7 +804,7 @@ cp %[2]s/manifests/99_feature-gate.yaml %[3]s/99_feature-gate.yaml
 	}
 
 	// Depending on the version, we need different args.
-	if payloadVersion.Major == 4 && payloadVersion.Minor < 14 {
+	if payloadVersion.LT(semver.Version{Major: 4, Minor: 14}) {
 		script = `#!/bin/bash
 set -e
 mkdir -p %[2]s
@@ -849,6 +823,43 @@ cp %[2]s/manifests/99_feature-gate.yaml %[3]s/99_feature-gate.yaml
 	}
 
 	return fmt.Sprintf(script, binary, workDir, outputDir, payloadVersion, featureGateYAML)
+}
+
+// buildMCOVersionArgs returns the version-dependent arguments for the MCO
+// bootstrap command. The args vary based on the payload version:
+//   - 4.14+: --payload-version, --image-references, --kube-ca (signer)
+//   - 4.13:  --image-references, --kube-ca (signer)
+//   - <4.13: legacy per-image flags, --kube-ca (root)
+func buildMCOVersionArgs(payloadVersion semver.Version, payloadVersionStr string, getImage func(string) string, configDir string) []string {
+	var args []string
+	switch {
+	case payloadVersion.GTE(semver.Version{Major: 4, Minor: 14}):
+		args = append(args,
+			fmt.Sprintf("--payload-version=%s", payloadVersionStr),
+		)
+		// We need to include 4.13 plus args here too.
+		fallthrough
+	case payloadVersion.GTE(semver.Version{Major: 4, Minor: 13}):
+		args = append(args,
+			fmt.Sprintf("--image-references=%s", path.Join(configDir, "release-manifests", "image-references")),
+			fmt.Sprintf("--kube-ca=%s/signer-ca.crt", configDir),
+		)
+	default:
+		// when the CPO is at N and the NodePool.spec.release at N-1
+		// we fail to render ignition payload because https://github.com/openshift/machine-config-operator/pull/3286
+		// broke backward compatibility.
+		args = append(args,
+			fmt.Sprintf("--machine-config-operator-image=%s", getImage("machine-config-operator")),
+			fmt.Sprintf("--machine-config-oscontent-image=%s", getImage("machine-os-content")),
+			fmt.Sprintf("--infra-image=%s", getImage("pod")),
+			fmt.Sprintf("--keepalived-image=%s", getImage("keepalived-ipfailover")),
+			fmt.Sprintf("--coredns-image=%s", getImage("coredns")),
+			fmt.Sprintf("--haproxy-image=%s", getImage("haproxy")),
+			fmt.Sprintf("--baremetal-runtimecfg-image=%s", getImage("baremetal-runtimecfg")),
+			fmt.Sprintf("--kube-ca=%s/root-ca.crt", configDir),
+		)
+	}
+	return args
 }
 
 func (p *LocalIgnitionProvider) extractMCOBinaries(ctx context.Context, cpoOSReleaseFile string, mcoImage string, pullSecret []byte, binDir string) error {
