@@ -830,16 +830,22 @@ func GCPCloudControllerManagerTest(getTestCtx internal.TestContextGetter) {
 		})
 
 		Context("When nodes are initialized by the CCM", func() {
-			It("should set providerID on all nodes", func() {
+			var nodes *corev1.NodeList
+
+			BeforeEach(func() {
 				testCtx := getTestCtx()
 				guestClient := testCtx.GetGuestClient()
-				Expect(guestClient).NotTo(BeNil(), "guest client is required")
+				Expect(guestClient).NotTo(BeNil(), "guest client is nil; HostedCluster may not have KubeConfig status set")
 
-				nodes := &corev1.NodeList{}
+				nodes = &corev1.NodeList{}
 				Expect(guestClient.List(context.Background(), nodes)).To(Succeed())
 				Expect(nodes.Items).NotTo(BeEmpty(), "cluster should have nodes")
+			})
 
+			It("should set providerID on all nodes", func() {
+				testCtx := getTestCtx()
 				hc := testCtx.GetHostedCluster()
+				Expect(hc.Spec.Platform.GCP).NotTo(BeNil(), "GCP platform spec must be set for GCP HostedCluster %s/%s", hc.Namespace, hc.Name)
 				gcpProject := hc.Spec.Platform.GCP.Project
 
 				for _, node := range nodes.Items {
@@ -850,19 +856,11 @@ func GCPCloudControllerManagerTest(getTestCtx internal.TestContextGetter) {
 						"node %s providerID should reference project %s", node.Name, gcpProject)
 					parts := strings.Split(node.Spec.ProviderID, "/")
 					Expect(parts).To(HaveLen(5),
-						"node %s providerID should have format gce://project/zone/instance", node.Name)
+						"node %s providerID should have format gce://<project>/<zone>/<instance-name>", node.Name)
 				}
 			})
 
 			It("should set zone and region topology labels on all nodes", func() {
-				testCtx := getTestCtx()
-				guestClient := testCtx.GetGuestClient()
-				Expect(guestClient).NotTo(BeNil(), "guest client is required")
-
-				nodes := &corev1.NodeList{}
-				Expect(guestClient.List(context.Background(), nodes)).To(Succeed())
-				Expect(nodes.Items).NotTo(BeEmpty())
-
 				for _, node := range nodes.Items {
 					zone, ok := node.Labels["topology.kubernetes.io/zone"]
 					Expect(ok).To(BeTrue(),
@@ -879,14 +877,6 @@ func GCPCloudControllerManagerTest(getTestCtx internal.TestContextGetter) {
 			})
 
 			It("should remove the uninitialized taint from all nodes", func() {
-				testCtx := getTestCtx()
-				guestClient := testCtx.GetGuestClient()
-				Expect(guestClient).NotTo(BeNil(), "guest client is required")
-
-				nodes := &corev1.NodeList{}
-				Expect(guestClient.List(context.Background(), nodes)).To(Succeed())
-				Expect(nodes.Items).NotTo(BeEmpty())
-
 				for _, node := range nodes.Items {
 					for _, taint := range node.Spec.Taints {
 						Expect(taint.Key).NotTo(Equal("node.cloudprovider.kubernetes.io/uninitialized"),

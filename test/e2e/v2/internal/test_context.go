@@ -81,7 +81,8 @@ func (tc *TestContext) GetHostedCluster() *hyperv1.HostedCluster {
 // GetGuestClient returns a controller-runtime client for the guest cluster.
 // It reads the kubeconfig from the secret referenced by the HostedCluster status.
 // The client is lazily initialized and cached.
-// Returns nil if the guest client cannot be created (e.g., HostedCluster not ready).
+// Returns nil if the HostedCluster is not available or its KubeConfig status is not set.
+// Panics on any other initialization failure (e.g., kubeconfig secret not found, invalid kubeconfig data).
 func (tc *TestContext) GetGuestClient() crclient.Client {
 	tc.guestClientOnce.Do(func() {
 		hc := tc.GetHostedCluster()
@@ -90,7 +91,7 @@ func (tc *TestContext) GetGuestClient() crclient.Client {
 		}
 
 		var kubeconfigSecret corev1.Secret
-		err := tc.MgmtClient.Get(context.Background(), crclient.ObjectKey{
+		err := tc.MgmtClient.Get(tc.Context, crclient.ObjectKey{
 			Namespace: hc.Namespace,
 			Name:      hc.Status.KubeConfig.Name,
 		}, &kubeconfigSecret)

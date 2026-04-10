@@ -1,7 +1,7 @@
 //go:build e2ev2
 
-// This file is generated. Do not edit manually.
-// Run: go run /tmp/generate_workloads.go > generated_workloads.go
+// This file defines the control plane workload registry.
+// Add new workload entries here when onboarding new components.
 
 package internal
 
