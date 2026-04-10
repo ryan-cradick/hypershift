@@ -6,13 +6,13 @@ on:
     paths:
       - 'api/**'
       - 'test/envtest/**'
-      - 'cmd/install/assets/hypershift-operator/tests/**'
+      - 'cmd/install/assets/crds/hypershift-operator/tests/**'
   pull_request:
     branches: [main]
     paths:
       - 'api/**'
       - 'test/envtest/**'
-      - 'cmd/install/assets/hypershift-operator/tests/**'
+      - 'cmd/install/assets/crds/hypershift-operator/tests/**'
   workflow_dispatch: {}
 
 jobs:
