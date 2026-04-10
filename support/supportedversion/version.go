@@ -32,9 +32,13 @@ const (
 // NOTE: The .0 (z release) should be ignored. It's only here to support
 // semver parsing.
 var (
-	LatestSupportedVersion      = semver.MustParse("4.22.0")
+	LatestSupportedVersion      = semver.MustParse("5.0.0")
 	MinSupportedVersion         = semver.MustParse("4.14.0")
 	IBMCloudMinSupportedVersion = semver.MustParse("4.14.0")
+	// prevLatestSupportedMajor holds the value of the latest version before we updated to a new major.
+	// This value is only used internally to compute the list of supported versions when we have 2
+	// different major versions at the same time.
+	prevLatestSupportedMajor = semver.MustParse("4.23.0")
 )
 
 // ocpVersionToKubeVersion maps OCP versions to their corresponding Kubernetes versions.
@@ -48,6 +52,7 @@ var ocpVersionToKubeVersion = map[string]semver.Version{
 	"4.19.0": semver.MustParse("1.32.0"),
 	"4.20.0": semver.MustParse("1.33.0"),
 	"4.21.0": semver.MustParse("1.34.0"),
+	"4.22.0": semver.MustParse("1.35.0"),
 }
 
 func GetKubeVersionForSupportedVersion(supportedVersion semver.Version) (*semver.Version, error) {
@@ -80,8 +85,21 @@ func GetMinSupportedVersion(hc *hyperv1.HostedCluster) semver.Version {
 
 func Supported() []string {
 	versions := []string{trimVersion(LatestSupportedVersion.String())}
-	for i := 0; i < int(LatestSupportedVersion.Minor-MinSupportedVersion.Minor); i++ {
-		versions = append(versions, trimVersion(subtractMinor(&LatestSupportedVersion, uint64(i+1)).String()))
+	if LatestSupportedVersion.Major > MinSupportedVersion.Major {
+		// Include remaining minor versions of the latest major (e.g. 5.2 -> 5.1, 5.0)
+		for i := 0; i < int(LatestSupportedVersion.Minor); i++ {
+			versions = append(versions, trimVersion(subtractMinor(&LatestSupportedVersion, uint64(i+1)).String()))
+		}
+		// Bridge from the previous major's latest minor down to MinSupportedVersion
+		for i := int(prevLatestSupportedMajor.Minor); i >= int(MinSupportedVersion.Minor); i-- {
+			v := semver.Version{Major: prevLatestSupportedMajor.Major, Minor: uint64(i), Patch: 0}
+			versions = append(versions, trimVersion(v.String()))
+		}
+	} else {
+		// If no major change simply count minors backwards
+		for i := 0; i < int(LatestSupportedVersion.Minor-MinSupportedVersion.Minor); i++ {
+			versions = append(versions, trimVersion(subtractMinor(&LatestSupportedVersion, uint64(i+1)).String()))
+		}
 	}
 	return versions
 }
