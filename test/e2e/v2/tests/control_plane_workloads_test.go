@@ -825,7 +825,7 @@ func GCPCloudControllerManagerTest(getTestCtx internal.TestContextGetter) {
 			testCtx := getTestCtx()
 			hc := testCtx.GetHostedCluster()
 			if hc == nil || hc.Spec.Platform.Type != hyperv1.GCPPlatform {
-				Skip("Test requires a GCP HostedCluster")
+				Skip("GCP Cloud Controller Manager test is only for GCP platform")
 			}
 		})
 
