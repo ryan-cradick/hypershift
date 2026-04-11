@@ -85,6 +85,7 @@ bin/hypershift-operator run          # Run operator locally
 - Platform-specific tests for cluster lifecycle
 - Nodepool management and upgrade scenarios
 - Karpenter integration tests
+- v2 framework standards and patterns: see [test/e2e/v2/AGENTS.md](test/e2e/v2/AGENTS.md)
 
 ### Integration Tests
 - Located in `test/integration/`
