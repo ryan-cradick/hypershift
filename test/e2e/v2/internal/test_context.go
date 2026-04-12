@@ -38,15 +38,15 @@ type TestContextGetter func() *TestContext
 // TestContext holds the test context including clients and hosted cluster reference
 type TestContext struct {
 	context.Context
-	MgmtClient            crclient.Client
-	ClusterName           string
-	ClusterNamespace      string
-	ControlPlaneNamespace string
-	ArtifactDir           string
-	hostedCluster         *hyperv1.HostedCluster
-	hostedClusterOnce     sync.Once
-	guestClient           crclient.Client
-	guestClientOnce       sync.Once
+	MgmtClient              crclient.Client
+	ClusterName             string
+	ClusterNamespace        string
+	ControlPlaneNamespace   string
+	ArtifactDir             string
+	hostedCluster           *hyperv1.HostedCluster
+	hostedClusterOnce       sync.Once
+	hostedClusterClient     crclient.Client
+	hostedClusterClientOnce sync.Once
 }
 
 // GetHostedCluster returns the HostedCluster associated with this test context.
@@ -78,13 +78,13 @@ func (tc *TestContext) GetHostedCluster() *hyperv1.HostedCluster {
 	return tc.hostedCluster
 }
 
-// GetGuestClient returns a controller-runtime client for the guest cluster.
+// GetHostedClusterClient returns a controller-runtime client for the hosted cluster.
 // It reads the kubeconfig from the secret referenced by the HostedCluster status.
 // The client is lazily initialized and cached.
 // Returns nil if the HostedCluster is not available or its KubeConfig status is not set.
 // Panics on any other initialization failure (e.g., kubeconfig secret not found, invalid kubeconfig data).
-func (tc *TestContext) GetGuestClient() crclient.Client {
-	tc.guestClientOnce.Do(func() {
+func (tc *TestContext) GetHostedClusterClient() crclient.Client {
+	tc.hostedClusterClientOnce.Do(func() {
 		hc := tc.GetHostedCluster()
 		if hc == nil || hc.Status.KubeConfig == nil {
 			return
@@ -111,11 +111,11 @@ func (tc *TestContext) GetGuestClient() crclient.Client {
 
 		client, err := crclient.New(restConfig, crclient.Options{Scheme: hyperapi.Scheme})
 		if err != nil {
-			panic(fmt.Sprintf("failed to create guest cluster client: %v", err))
+			panic(fmt.Sprintf("failed to create hosted cluster client: %v", err))
 		}
-		tc.guestClient = client
+		tc.hostedClusterClient = client
 	})
-	return tc.guestClient
+	return tc.hostedClusterClient
 }
 
 var (

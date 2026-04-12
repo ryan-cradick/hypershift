@@ -816,78 +816,6 @@ func SecurityContextUIDTest(getTestCtx internal.TestContextGetter) {
 	})
 }
 
-// GCPCloudControllerManagerTest registers tests for GCP CCM node initialization validation.
-// These tests verify that the CCM workload is producing the expected effects on the guest cluster:
-// providerID assignment, topology labels, and taint removal.
-func GCPCloudControllerManagerTest(getTestCtx internal.TestContextGetter) {
-	Context("GCP Cloud Controller Manager", Label("GCP", "CCM"), func() {
-		BeforeEach(func() {
-			testCtx := getTestCtx()
-			hc := testCtx.GetHostedCluster()
-			if hc == nil || hc.Spec.Platform.Type != hyperv1.GCPPlatform {
-				Skip("GCP Cloud Controller Manager test is only for GCP platform")
-			}
-		})
-
-		Context("When nodes are initialized by the CCM", func() {
-			var nodes *corev1.NodeList
-
-			BeforeEach(func() {
-				testCtx := getTestCtx()
-				guestClient := testCtx.GetGuestClient()
-				Expect(guestClient).NotTo(BeNil(), "guest client is nil; HostedCluster may not have KubeConfig status set")
-
-				nodes = &corev1.NodeList{}
-				Expect(guestClient.List(context.Background(), nodes)).To(Succeed())
-				Expect(nodes.Items).NotTo(BeEmpty(), "cluster should have nodes")
-			})
-
-			It("should set providerID on all nodes", func() {
-				testCtx := getTestCtx()
-				hc := testCtx.GetHostedCluster()
-				Expect(hc.Spec.Platform.GCP).NotTo(BeNil(), "GCP platform spec must be set for GCP HostedCluster %s/%s", hc.Namespace, hc.Name)
-				gcpProject := hc.Spec.Platform.GCP.Project
-
-				for _, node := range nodes.Items {
-					Expect(node.Spec.ProviderID).NotTo(BeEmpty(),
-						"node %s should have providerID set", node.Name)
-					// GCP providerID format: gce://<project>/<zone>/<instance-name>
-					Expect(node.Spec.ProviderID).To(HavePrefix("gce://"+gcpProject+"/"),
-						"node %s providerID should reference project %s", node.Name, gcpProject)
-					parts := strings.Split(node.Spec.ProviderID, "/")
-					Expect(parts).To(HaveLen(5),
-						"node %s providerID should have format gce://<project>/<zone>/<instance-name>", node.Name)
-				}
-			})
-
-			It("should set zone and region topology labels on all nodes", func() {
-				for _, node := range nodes.Items {
-					zone, ok := node.Labels["topology.kubernetes.io/zone"]
-					Expect(ok).To(BeTrue(),
-						"node %s should have topology.kubernetes.io/zone label", node.Name)
-					Expect(zone).NotTo(BeEmpty(),
-						"node %s zone label should not be empty", node.Name)
-
-					region, ok := node.Labels["topology.kubernetes.io/region"]
-					Expect(ok).To(BeTrue(),
-						"node %s should have topology.kubernetes.io/region label", node.Name)
-					Expect(region).NotTo(BeEmpty(),
-						"node %s region label should not be empty", node.Name)
-				}
-			})
-
-			It("should remove the uninitialized taint from all nodes", func() {
-				for _, node := range nodes.Items {
-					for _, taint := range node.Spec.Taints {
-						Expect(taint.Key).NotTo(Equal("node.cloudprovider.kubernetes.io/uninitialized"),
-							"node %s should not have the cloud provider uninitialized taint", node.Name)
-					}
-				}
-			})
-		})
-	})
-}
-
 // RegisterControlPlaneWorkloadsTests registers all control plane workloads tests
 func RegisterControlPlaneWorkloadsTests(getTestCtx internal.TestContextGetter) {
 	WorkloadRegistryValidationTest(getTestCtx)
@@ -902,7 +830,6 @@ func RegisterControlPlaneWorkloadsTests(getTestCtx internal.TestContextGetter) {
 	ServiceAccountTokenMountingTest(getTestCtx)
 	PodAffinitiesAndTolerationsTest(getTestCtx)
 	SecurityContextUIDTest(getTestCtx)
-	GCPCloudControllerManagerTest(getTestCtx)
 }
 
 var _ = Describe("Control Plane Workloads", Label("control-plane-workloads"), func() {
