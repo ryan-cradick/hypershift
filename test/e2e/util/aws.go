@@ -362,7 +362,7 @@ func CreateCapacityReservation(ctx context.Context, awsCreds, awsRegion, instanc
 		InstanceCount:         awsv2.Int32(instanceCount),
 		InstanceMatchCriteria: ec2types.InstanceMatchCriteriaTargeted,
 		EndDateType:           ec2types.EndDateTypeLimited,
-		EndDate:               awsv2.Time(time.Now().Add(1 * time.Hour)),
+		EndDate:               awsv2.Time(time.Now().Add(2 * time.Hour)),
 	})
 	if err != nil {
 		return "", nil, fmt.Errorf("failed to create capacity reservation: %w", err)
