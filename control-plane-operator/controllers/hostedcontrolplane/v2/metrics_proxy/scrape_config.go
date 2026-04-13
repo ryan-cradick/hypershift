@@ -8,9 +8,10 @@ import (
 	metricsproxybin "github.com/openshift/hypershift/control-plane-operator/metrics-proxy"
 	component "github.com/openshift/hypershift/support/controlplane-component"
 
-	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/labels"
+	"k8s.io/apimachinery/pkg/util/intstr"
 
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/yaml"
@@ -60,6 +61,10 @@ func adaptScrapeConfig(cpContext component.WorkloadContext, cm *corev1.ConfigMap
 			log.V(4).Info("skipping ServiceMonitor: service not found", "serviceMonitor", sm.Name, "error", err)
 			continue
 		}
+		if len(podSelector) == 0 {
+			log.V(4).Info("skipping ServiceMonitor: service has no pod selector", "serviceMonitor", sm.Name, "service", serviceName)
+			continue
+		}
 
 		portRef := ep.Port
 		if portRef == "" && ep.TargetPort != nil {
@@ -70,7 +75,7 @@ func adaptScrapeConfig(cpContext component.WorkloadContext, cm *corev1.ConfigMap
 			continue
 		}
 
-		port, err := resolveServicePort(cpContext, namespace, serviceName, portRef)
+		port, err := resolveServicePort(cpContext, namespace, serviceName, portRef, podSelector)
 		if err != nil {
 			log.V(4).Info("skipping ServiceMonitor: port not resolvable", "serviceMonitor", sm.Name, "port", portRef, "error", err)
 			continue
@@ -134,9 +139,13 @@ func adaptScrapeConfig(cpContext component.WorkloadContext, cm *corev1.ConfigMap
 			continue
 		}
 
-		// Resolve the port number from the component's Deployment.
-		// The PodMonitor name matches the component name by CPOv2 convention.
-		port, err := resolveDeploymentPort(cpContext, namespace, pm.Name, portName)
+		// Resolve the port number from a Pod matching the PodMonitor's selector.
+		podSelector, err := metav1.LabelSelectorAsSelector(&pm.Spec.Selector)
+		if err != nil {
+			log.V(4).Info("skipping PodMonitor: invalid selector", "podMonitor", pm.Name, "error", err)
+			continue
+		}
+		port, err := resolvePodPort(cpContext, namespace, podSelector, portName)
 		if err != nil {
 			log.V(4).Info("skipping PodMonitor: port not resolvable", "podMonitor", pm.Name, "port", portName, "error", err)
 			continue
@@ -239,8 +248,10 @@ func findServiceForMonitor(cpContext component.WorkloadContext, namespace, smNam
 }
 
 // resolveServicePort reads a Service and resolves a named port to a numeric
-// port value.
-func resolveServicePort(cpContext component.WorkloadContext, namespace, serviceName, portName string) (int32, error) {
+// container port value. If the Service's targetPort is numeric it is returned
+// directly. If the targetPort is a named port, it is resolved from a Pod
+// matched by the Service's selector.
+func resolveServicePort(cpContext component.WorkloadContext, namespace, serviceName, portName string, podSelector map[string]string) (int32, error) {
 	svc := &corev1.Service{
 		ObjectMeta: metav1.ObjectMeta{
 			Namespace: namespace,
@@ -256,6 +267,11 @@ func resolveServicePort(cpContext component.WorkloadContext, namespace, serviceN
 			if p.TargetPort.IntValue() > 0 {
 				return int32(p.TargetPort.IntValue()), nil
 			}
+			// targetPort is a named port, resolve from a Pod.
+			if p.TargetPort.Type == intstr.String && p.TargetPort.StrVal != "" {
+				return resolvePodPort(cpContext, namespace, labels.SelectorFromSet(podSelector), p.TargetPort.StrVal)
+			}
+			// No targetPort set; Kubernetes defaults it to the port value.
 			return p.Port, nil
 		}
 	}
@@ -280,22 +296,28 @@ func populateMetricsLabelsFromAnnotations(comp *metricsproxybin.ComponentFileCon
 	}
 }
 
-// resolveDeploymentPort reads a Deployment and resolves a named container port
-// to a numeric port value. It searches all containers for a port matching the
-// given name.
-func resolveDeploymentPort(cpContext component.WorkloadContext, namespace, deploymentName, portName string) (int32, error) {
-	deploy := &appsv1.Deployment{}
-	if err := cpContext.Client.Get(cpContext, client.ObjectKey{Namespace: namespace, Name: deploymentName}, deploy); err != nil {
-		return 0, fmt.Errorf("failed to get deployment %s: %w", deploymentName, err)
+// resolvePodPort finds a Pod matching the given selector and resolves a named
+// container port to a numeric port value. It scans all matching pods so that
+// a port can still be resolved during rollouts when different pod revisions coexist.
+func resolvePodPort(cpContext component.WorkloadContext, namespace string, selector labels.Selector, portName string) (int32, error) {
+	podList := &corev1.PodList{}
+	if err := cpContext.Client.List(cpContext, podList, client.InNamespace(namespace), client.MatchingLabelsSelector{Selector: selector}); err != nil {
+		return 0, fmt.Errorf("failed to list pods with selector %s: %w", selector, err)
 	}
 
-	for _, container := range deploy.Spec.Template.Spec.Containers {
-		for _, p := range container.Ports {
-			if p.Name == portName {
-				return p.ContainerPort, nil
+	if len(podList.Items) == 0 {
+		return 0, fmt.Errorf("no pods found with selector %s", selector)
+	}
+
+	for i := range podList.Items {
+		for _, container := range podList.Items[i].Spec.Containers {
+			for _, p := range container.Ports {
+				if p.Name == portName {
+					return p.ContainerPort, nil
+				}
 			}
 		}
 	}
 
-	return 0, fmt.Errorf("port %q not found on deployment %s", portName, deploymentName)
+	return 0, fmt.Errorf("port %q not found on pods with selector %s", portName, selector)
 }
