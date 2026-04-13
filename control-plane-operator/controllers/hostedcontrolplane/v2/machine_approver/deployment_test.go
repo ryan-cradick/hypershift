@@ -151,6 +151,11 @@ func TestAdaptDeployment(t *testing.T) {
 				},
 			}
 
+			containers := make([]corev1.Container, len(tc.initialContainers))
+			for i := range tc.initialContainers {
+				containers[i] = *tc.initialContainers[i].DeepCopy()
+			}
+
 			deployment := &appsv1.Deployment{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "test-deployment",
@@ -159,7 +164,7 @@ func TestAdaptDeployment(t *testing.T) {
 				Spec: appsv1.DeploymentSpec{
 					Template: corev1.PodTemplateSpec{
 						Spec: corev1.PodSpec{
-							Containers: tc.initialContainers,
+							Containers: containers,
 						},
 					},
 				},
