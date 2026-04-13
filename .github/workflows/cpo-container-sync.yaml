@@ -2,7 +2,7 @@ name: CPO Container Sync
 
 on:
   pull_request:
-    branches: [main]
+    branches: [main, release-4.22]
 
 jobs:
   cpo-container-sync:

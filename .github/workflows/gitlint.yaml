@@ -2,7 +2,7 @@ name: Gitlint
 
 on:
   pull_request:
-    branches: [main]
+    branches: [main, release-4.22]
 
 jobs:
   gitlint:

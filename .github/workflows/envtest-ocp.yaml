@@ -2,13 +2,13 @@ name: Envtest OCP API Validation
 
 on:
   push:
-    branches: [main]
+    branches: [main, release-4.22]
     paths:
       - 'api/**'
       - 'test/envtest/**'
       - 'cmd/install/assets/crds/hypershift-operator/tests/**'
   pull_request:
-    branches: [main]
+    branches: [main, release-4.22]
     paths:
       - 'api/**'
       - 'test/envtest/**'
