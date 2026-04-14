@@ -669,12 +669,13 @@ func (r *NodePoolReconciler) getReleaseImage(ctx context.Context, hostedCluster 
 		return nil, err
 	}
 
-	var currentVersionParsed semver.Version
+	var currentVersionParsed *semver.Version
 	if currentVersion != "" {
-		currentVersionParsed, err = semver.Parse(currentVersion)
+		parsed, err := semver.Parse(currentVersion)
 		if err != nil {
 			return nil, err
 		}
+		currentVersionParsed = &parsed
 	}
 
 	minSupportedVersion := supportedversion.GetMinSupportedVersion(hostedCluster)
@@ -684,7 +685,7 @@ func (r *NodePoolReconciler) getReleaseImage(ctx context.Context, hostedCluster 
 		return nil, err
 	}
 
-	return ReleaseImage, supportedversion.IsValidReleaseVersion(&wantedVersion, &currentVersionParsed, hostedClusterVersion, &minSupportedVersion, hostedCluster.Spec.Networking.NetworkType, hostedCluster.Spec.Platform.Type)
+	return ReleaseImage, supportedversion.IsValidReleaseVersion(&wantedVersion, currentVersionParsed, hostedClusterVersion, &minSupportedVersion, hostedCluster.Spec.Networking.NetworkType, hostedCluster.Spec.Platform.Type)
 }
 
 func (r *NodePoolReconciler) getHostedClusterVersion(ctx context.Context, hostedCluster *hyperv1.HostedCluster, pullSecretBytes []byte) (*semver.Version, error) {
