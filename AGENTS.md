@@ -4,6 +4,8 @@ This file provides guidance when working with code in this repository.
 
 HyperShift is a middleware for hosting OpenShift control planes at scale. It provides cost-effective and time-efficient cluster provisioning with portability across clouds while maintaining strong separation between management and workloads.
 
+Project documentation is published via MkDocs. The site structure and navigation are defined in [docs/mkdocs.yml](docs/mkdocs.yml), with content under `docs/content/`. When adding or reorganizing documentation pages, update the `nav` section in `mkdocs.yml` to keep the site navigation in sync.
+
 ## Architecture
 
 ### Core Components
@@ -86,6 +88,17 @@ bin/hypershift-operator run          # Run operator locally
 - Nodepool management and upgrade scenarios
 - Karpenter integration tests
 
+### Envtest (API Validation Tests)
+- Located in `test/envtest/` with build tag `envtest`
+- Tests CRD validation rules (CEL, OpenAPI schema) against real kube-apiserver + etcd
+- Test cases are YAML-driven following the openshift/api convention
+- Each YAML file defines `onCreate` and `onUpdate` test cases with expected errors
+- Run with `make test-envtest-ocp` (OpenShift k8s versions) or `make test-envtest-kube` (vanilla k8s versions), or `make test-envtest-api-all` for both
+- Tests run across multiple Kubernetes versions (1.31–1.35) to verify validation ratcheting and compatibility
+- Feature gate filtering: test suites can target stable, tech-preview, or feature-gated CRD variants
+
+See test/envtest/README.md for details
+
 ### Integration Tests
 - Located in `test/integration/`
 - Focus on controller behavior and API interactions
@@ -110,10 +123,36 @@ Please see /hypershift/.cursor/rules/code-formatting.mdc
 - Follow owner reference patterns for proper garbage collection
 - Leverage controller-runtime's structured logging
 
-### API Versioning
+### CRD API Machinery Fundamentals
+
+These are non-obvious behaviors of the Kubernetes API machinery that affect how CRD types in `api/` must be written. These are not style preferences or conventions — they are fundamental facts and reasoning about how the system works.
+
+For conventions read https://github.com/openshift/enhancements/blob/master/dev-guide/api-conventions.md
+
+`make api-lint-fix` will enforce most conventions and best practices.
+
+#### API Versioning
 - APIs primarily in v1beta1
+- Any new API should GA as v1
 - Use feature gates for experimental functionality
 - CRD generation via controller-gen with OpenShift-specific tooling
+
+#### Serialization
+- **`omitempty` does nothing for non-pointer structs.** Only `omitzero` correctly omits a struct field when it equals its zero value. This is a Go encoding/json behavior, not a Kubernetes convention.
+- **The only reason to use a pointer in a CRD is when the zero value is a valid, distinct user choice.** If the struct has a required field, `{}` can never be valid user input, so there is no ambiguity to resolve and no pointer is needed. `omitzero` on a non-pointer struct will correctly omit the key from serialized output. `MinProperties`/`MaxProperties` on the parent counts serialized keys — it has no concept of whether the Go field is a pointer.
+- **`// +default` must be paired with `// +optional`** because the required check runs before defaulting. A required field with a default will be rejected before the default is ever applied.
+
+#### Validation Execution
+- **OpenAPI schema validation only runs when a key is present in the serialized object.** if a field is omitted, the validation never executes. This is why `MinLength=1` on an optional field is safe: the constraint only fires when the user actually provides a value.
+- **Optionality and min constraints are independent concerns.** An optional field with `MinLength=1` means "you don't have to set this, but if you do, it can't be empty." These do not conflict.
+- **Admission-time validation rejects the write immediately.** Controller-time validation accepts the write, the user assumes success, and discovers the problem later via conditions or logs. Always prefer admission-time via CEL over controller-time validation.
+
+#### Immutability
+- **Immutable + optional creates a two-step bypass.** A user can (1) remove the optional field, then (2) re-add it with a different value. To prevent this, add a CEL rule at the parent level that forbids removing the field once set: `oldSelf.has(field) ? self.has(field) : true`.
+- **"Once set, cannot be removed" and "once set, cannot be changed" are separate constraints.** You typically need both together, and they require separate CEL rules.
+
+#### Defaulting and Transitions
+- **Ratcheting validation**: when adding new validation to existing fields, verify that existing clusters with values that predate the new validation can still be updated. CRD validation ratchets (allows unchanged invalid values through), but only for fields that are literally unchanged in the update.
 
 ## Dependencies and Modules
 
