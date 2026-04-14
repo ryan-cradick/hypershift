@@ -896,6 +896,9 @@ func (r *reconciler) reconcileMetricsForwarder(ctx context.Context, hcp *hyperv1
 	if _, disabled := hcp.Annotations[hyperv1.DisableMonitoringServices]; disabled {
 		return util.DeleteAllIfNeeded(ctx, r.client, deployment, cm, servingCA, podMonitor)
 	}
+	if _, enabled := hcp.Annotations[hyperv1.EnableMetricsForwarding]; !enabled {
+		return util.DeleteAllIfNeeded(ctx, r.client, deployment, cm, servingCA, podMonitor)
+	}
 
 	route := &routev1.Route{}
 	if err := r.cpClient.Get(ctx, types.NamespacedName{

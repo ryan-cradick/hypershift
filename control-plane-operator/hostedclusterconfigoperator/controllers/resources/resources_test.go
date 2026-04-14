@@ -94,6 +94,10 @@ var initialObjects = []client.Object{
 	fakeOperatorHub(),
 	manifests.KASConnectionCheckerDeployment(),
 	manifests.KASConnectionCheckerServiceAccount(),
+	manifests.MetricsForwarderDeployment(),
+	manifests.MetricsForwarderConfigMap(),
+	manifests.MetricsForwarderServingCA(),
+	manifests.MetricsForwarderPodMonitor(),
 }
 
 func shouldNotError(key client.ObjectKey) bool {
@@ -2959,6 +2963,81 @@ func Test_reconciler_reconcileKASConnectionCheckerDeployment(t *testing.T) {
 
 			if tt.validate != nil {
 				tt.validate(t, r.client)
+			}
+		})
+	}
+}
+
+func TestReconcileMetricsForwarder(t *testing.T) {
+	tests := []struct {
+		name            string
+		annotations     map[string]string
+		existingObjects []client.Object
+		expectCleanup   bool
+	}{
+		{
+			name:        "When EnableMetricsForwarding is not set, it should delete existing resources",
+			annotations: map[string]string{},
+			existingObjects: []client.Object{
+				manifests.MetricsForwarderDeployment(),
+				manifests.MetricsForwarderConfigMap(),
+				manifests.MetricsForwarderServingCA(),
+				manifests.MetricsForwarderPodMonitor(),
+			},
+			expectCleanup: true,
+		},
+		{
+			name:        "When DisableMonitoringServices is set, it should delete existing resources",
+			annotations: map[string]string{hyperv1.DisableMonitoringServices: "true"},
+			existingObjects: []client.Object{
+				manifests.MetricsForwarderDeployment(),
+				manifests.MetricsForwarderConfigMap(),
+				manifests.MetricsForwarderServingCA(),
+				manifests.MetricsForwarderPodMonitor(),
+			},
+			expectCleanup: true,
+		},
+		{
+			name:            "When EnableMetricsForwarding is not set and no resources exist, it should succeed",
+			annotations:     map[string]string{},
+			existingObjects: nil,
+			expectCleanup:   true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			g := NewGomegaWithT(t)
+
+			guestClient := fake.NewClientBuilder().WithScheme(api.Scheme).WithObjects(tt.existingObjects...).Build()
+			r := &reconciler{
+				client:                 guestClient,
+				CreateOrUpdateProvider: &simpleCreateOrUpdater{},
+			}
+
+			hcp := &hyperv1.HostedControlPlane{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:        "test",
+					Namespace:   "test-ns",
+					Annotations: tt.annotations,
+				},
+			}
+
+			err := r.reconcileMetricsForwarder(t.Context(), hcp, nil)
+			g.Expect(err).ToNot(HaveOccurred())
+
+			if tt.expectCleanup {
+				deployment := manifests.MetricsForwarderDeployment()
+				g.Expect(apierrors.IsNotFound(guestClient.Get(t.Context(), client.ObjectKeyFromObject(deployment), deployment))).To(BeTrue(), "deployment should be deleted")
+
+				cm := manifests.MetricsForwarderConfigMap()
+				g.Expect(apierrors.IsNotFound(guestClient.Get(t.Context(), client.ObjectKeyFromObject(cm), cm))).To(BeTrue(), "configmap should be deleted")
+
+				servingCA := manifests.MetricsForwarderServingCA()
+				g.Expect(apierrors.IsNotFound(guestClient.Get(t.Context(), client.ObjectKeyFromObject(servingCA), servingCA))).To(BeTrue(), "serving CA should be deleted")
+
+				podMonitor := manifests.MetricsForwarderPodMonitor()
+				g.Expect(apierrors.IsNotFound(guestClient.Get(t.Context(), client.ObjectKeyFromObject(podMonitor), podMonitor))).To(BeTrue(), "pod monitor should be deleted")
 			}
 		})
 	}
