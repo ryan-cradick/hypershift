@@ -67,6 +67,7 @@ nav:
     - how-to/automated-machine-management/node-tuning.md
     - how-to/automated-machine-management/nodepool-lifecycle.md
     - how-to/automated-machine-management/scale-to-zero-dataplane.md
+  - how-to/autoscaling.md
   - 'CI':
     - 'AI-Assisted CI Jobs': how-to/ci/ai-assisted-ci-jobs.md
     - how-to/ci/ci-infrastructure.md
@@ -140,6 +141,7 @@ nav:
         - how-to/azure/scheduler.md
       - 'Self-managed Azure':
         - how-to/azure/self-managed-azure-index.md
+        - how-to/azure/autoscaling-self-managed.md
         - how-to/azure/azure-workload-identity-setup.md
         - how-to/azure/create-self-managed-azure-cluster.md
         - how-to/azure/create-iam-separately.md
