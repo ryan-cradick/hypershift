@@ -307,9 +307,9 @@ func testEtcdMemberCorruption(parentCtx context.Context, client crclient.Client,
 			err := client.Get(ctx, crclient.ObjectKeyFromObject(sts), sts)
 			return sts, err
 		}, []e2eutil.Predicate[*appsv1.StatefulSet]{func(sts *appsv1.StatefulSet) (done bool, reasons string, err error) {
-			want := ptr.Deref(etcdSts.Spec.Replicas, 3)
+			want := ptr.Deref(etcdSts.Spec.Replicas, 0)
 			got := sts.Status.ReadyReplicas
-			return want != 3 && want == got, fmt.Sprintf("wanted %d replicas in spec, got %d in status", want, got), nil
+			return want != 0 && want == got, fmt.Sprintf("wanted %d replicas in spec, got %d in status", want, got), nil
 		}}, e2eutil.WithInterval(5*time.Second), e2eutil.WithTimeout(30*time.Minute))
 	}
 }
@@ -380,9 +380,9 @@ func testEtcdMemberMissing(parentCtx context.Context, client crclient.Client, cl
 			err := client.Get(ctx, crclient.ObjectKeyFromObject(sts), sts)
 			return sts, err
 		}, []e2eutil.Predicate[*appsv1.StatefulSet]{func(sts *appsv1.StatefulSet) (done bool, reasons string, err error) {
-			want := ptr.Deref(etcdSts.Spec.Replicas, 3)
+			want := ptr.Deref(etcdSts.Spec.Replicas, 0)
 			got := sts.Status.ReadyReplicas
-			return want != 3 && want == got, fmt.Sprintf("wanted %d replicas in spec, got %d in status", want, got), nil
+			return want != 0 && want == got, fmt.Sprintf("wanted %d replicas in spec, got %d in status", want, got), nil
 		}}, e2eutil.WithInterval(5*time.Second), e2eutil.WithTimeout(30*time.Minute))
 	}
 }
