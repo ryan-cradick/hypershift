@@ -150,7 +150,7 @@ func (r *GCPPrivateServiceConnectReconciler) Reconcile(ctx context.Context, req 
 }
 
 // reconcileGCPPrivateServiceConnectSpec reconciles the GCPPrivateServiceConnect spec fields
-func (r *GCPPrivateServiceConnectReconciler) reconcileGCPPrivateServiceConnectSpec(ctx context.Context, gcpPSC *hyperv1.GCPPrivateServiceConnect, hc *hyperv1.HostedCluster) error {
+func (r *GCPPrivateServiceConnectReconciler) reconcileGCPPrivateServiceConnectSpec(ctx context.Context, gcpPSC *hyperv1.GCPPrivateServiceConnect, _ *hyperv1.HostedCluster) error {
 	// Set ForwardingRuleName if not already populated
 	if gcpPSC.Spec.ForwardingRuleName == "" {
 		forwardingRuleName, err := r.lookupForwardingRuleName(ctx, gcpPSC)
@@ -385,7 +385,7 @@ func (r *GCPPrivateServiceConnectReconciler) buildConsumerAcceptLists(acceptList
 }
 
 // updateStatusFromServiceAttachment updates the CR status based on Service Attachment state
-func (r *GCPPrivateServiceConnectReconciler) updateStatusFromServiceAttachment(ctx context.Context, gcpPSC *hyperv1.GCPPrivateServiceConnect, serviceAttachment *compute.ServiceAttachment) (ctrl.Result, error) {
+func (r *GCPPrivateServiceConnectReconciler) updateStatusFromServiceAttachment(ctx context.Context, gcpPSC *hyperv1.GCPPrivateServiceConnect, serviceAttachment *compute.ServiceAttachment) (ctrl.Result, error) { //nolint:unparam // result kept for API consistency
 	patch := client.MergeFrom(gcpPSC.DeepCopy())
 
 	// Update status fields
@@ -463,7 +463,7 @@ func (r *GCPPrivateServiceConnectReconciler) delete(ctx context.Context, gcpPSC 
 }
 
 // handleGCPError handles GCP API errors with appropriate retry logic
-func (r *GCPPrivateServiceConnectReconciler) handleGCPError(ctx context.Context, gcpPSC *hyperv1.GCPPrivateServiceConnect, reason string, err error) (ctrl.Result, error) {
+func (r *GCPPrivateServiceConnectReconciler) handleGCPError(ctx context.Context, gcpPSC *hyperv1.GCPPrivateServiceConnect, reason string, err error) (ctrl.Result, error) { //nolint:unparam // error return kept for API consistency
 	log := r.Log.WithValues("gcpprivateserviceconnect", gcpPSC.Name)
 
 	// Extract GCP error details
