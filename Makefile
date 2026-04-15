@@ -365,26 +365,85 @@ ENVTEST_OCP_K8S_VERSIONS ?= 1.30.3 1.31.2 1.32.1 1.33.2 1.34.1 1.35.1
 # Vanilla Kubernetes versions for envtest (upstream kubebuilder assets)
 ENVTEST_KUBE_VERSIONS ?= 1.31.0 1.32.0 1.33.0 1.34.0 1.35.0
 
+# Parallel envtest execution: 0 = sequential (default), N = N parallel jobs, MAX = all versions in parallel.
+ENVTEST_JOBS ?= 0
+
+# Internal pattern target for parallel sub-make. Do not call directly.
+# Expects ENVTEST_BIN_DIR and optionally ENVTEST_INDEX_FLAG via sub-make variables.
+_run-single-envtest-%:
+	@log=$$(mktemp); \
+	echo "=== Running envtest for K8s $* ===" > "$$log"; \
+	KUBEBUILDER_ASSETS="$$($(SETUP_ENVTEST) use --use-env --bin-dir $(ENVTEST_BIN_DIR) -p path $(ENVTEST_INDEX_FLAG) $*)" \
+	$(GO) test -tags envtest -race -count=1 -timeout=30m ./test/envtest/... >> "$$log" 2>&1; \
+	rc=$$?; \
+	cat "$$log"; \
+	rm -f "$$log"; \
+	exit $$rc
+
 .PHONY: test-envtest-ocp
-test-envtest-ocp: generate $(SETUP_ENVTEST) ## Run envtest tests for all supported OCP versions (4.17-4.22)
+test-envtest-ocp: generate $(SETUP_ENVTEST) ## Run envtest tests for all supported OCP versions (ENVTEST_JOBS=0|N|MAX)
+ifeq ($(ENVTEST_JOBS),0)
 	@for k8s_ver in $(ENVTEST_OCP_K8S_VERSIONS); do \
 		echo "=== Running envtest for OCP (K8s $$k8s_ver) ==="; \
 		KUBEBUILDER_ASSETS="$$($(SETUP_ENVTEST) use --use-env --bin-dir $(ENVTEST_OCP_ASSETS_DIR) -p path --index $(ENVTEST_OCP_INDEX) $$k8s_ver)" \
 		$(GO) test -tags envtest -race -count=1 -timeout=30m ./test/envtest/... || exit 1; \
 	done
 	@echo "=== All OCP envtest versions passed ==="
+else
+	@echo "=== Pre-fetching OCP envtest assets ==="
+	@for k8s_ver in $(ENVTEST_OCP_K8S_VERSIONS); do \
+		echo "  Fetching K8s $$k8s_ver..."; \
+		$(SETUP_ENVTEST) use --use-env --bin-dir $(ENVTEST_OCP_ASSETS_DIR) -p path --index $(ENVTEST_OCP_INDEX) $$k8s_ver > /dev/null || { echo "Failed to fetch envtest assets for $$k8s_ver"; exit 1; }; \
+	done
+  ifeq ($(ENVTEST_JOBS),MAX)
+	@echo "=== Running OCP envtest in parallel (jobs=$(words $(ENVTEST_OCP_K8S_VERSIONS))) ==="
+	@$(MAKE) -j$(words $(ENVTEST_OCP_K8S_VERSIONS)) --no-print-directory \
+		ENVTEST_BIN_DIR="$(ENVTEST_OCP_ASSETS_DIR)" \
+		ENVTEST_INDEX_FLAG="--index $(ENVTEST_OCP_INDEX)" \
+		$(addprefix _run-single-envtest-,$(ENVTEST_OCP_K8S_VERSIONS))
+  else
+	@echo "=== Running OCP envtest in parallel (jobs=$(ENVTEST_JOBS)) ==="
+	@$(MAKE) -j$(ENVTEST_JOBS) --no-print-directory \
+		ENVTEST_BIN_DIR="$(ENVTEST_OCP_ASSETS_DIR)" \
+		ENVTEST_INDEX_FLAG="--index $(ENVTEST_OCP_INDEX)" \
+		$(addprefix _run-single-envtest-,$(ENVTEST_OCP_K8S_VERSIONS))
+  endif
+	@echo "=== All OCP envtest versions passed ==="
+endif
 
 .PHONY: test-envtest-kube
-test-envtest-kube: generate $(SETUP_ENVTEST) ## Run envtest tests for all supported vanilla Kubernetes versions (1.31-1.35)
+test-envtest-kube: generate $(SETUP_ENVTEST) ## Run envtest tests for all supported Kubernetes versions (ENVTEST_JOBS=0|N|MAX)
+ifeq ($(ENVTEST_JOBS),0)
 	@for k8s_ver in $(ENVTEST_KUBE_VERSIONS); do \
 		echo "=== Running envtest for Kubernetes $$k8s_ver ==="; \
 		KUBEBUILDER_ASSETS="$$($(SETUP_ENVTEST) use --use-env --bin-dir $(ENVTEST_KUBE_ASSETS_DIR) -p path $$k8s_ver)" \
 		$(GO) test -tags envtest -race -count=1 -timeout=30m ./test/envtest/... || exit 1; \
 	done
 	@echo "=== All Kubernetes envtest versions passed ==="
+else
+	@echo "=== Pre-fetching Kubernetes envtest assets ==="
+	@for k8s_ver in $(ENVTEST_KUBE_VERSIONS); do \
+		echo "  Fetching K8s $$k8s_ver..."; \
+		$(SETUP_ENVTEST) use --use-env --bin-dir $(ENVTEST_KUBE_ASSETS_DIR) -p path $$k8s_ver > /dev/null || { echo "Failed to fetch envtest assets for $$k8s_ver"; exit 1; }; \
+	done
+  ifeq ($(ENVTEST_JOBS),MAX)
+	@echo "=== Running Kubernetes envtest in parallel (jobs=$(words $(ENVTEST_KUBE_VERSIONS))) ==="
+	@$(MAKE) -j$(words $(ENVTEST_KUBE_VERSIONS)) --no-print-directory \
+		ENVTEST_BIN_DIR="$(ENVTEST_KUBE_ASSETS_DIR)" \
+		ENVTEST_INDEX_FLAG="" \
+		$(addprefix _run-single-envtest-,$(ENVTEST_KUBE_VERSIONS))
+  else
+	@echo "=== Running Kubernetes envtest in parallel (jobs=$(ENVTEST_JOBS)) ==="
+	@$(MAKE) -j$(ENVTEST_JOBS) --no-print-directory \
+		ENVTEST_BIN_DIR="$(ENVTEST_KUBE_ASSETS_DIR)" \
+		ENVTEST_INDEX_FLAG="" \
+		$(addprefix _run-single-envtest-,$(ENVTEST_KUBE_VERSIONS))
+  endif
+	@echo "=== All Kubernetes envtest versions passed ==="
+endif
 
 .PHONY: test-envtest-api-all
-test-envtest-api-all: test-envtest-ocp test-envtest-kube ## Run envtest API tests for all supported OCP and Kubernetes versions
+test-envtest-api-all: test-envtest-ocp test-envtest-kube ## Run all envtest API tests (ENVTEST_JOBS=0|N|MAX)
 
 .PHONY: e2e
 e2e: reqserving-e2e e2ev2 backuprestore-e2e
