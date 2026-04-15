@@ -31,6 +31,31 @@ make test-envtest-ocp ENVTEST_OCP_K8S_VERSIONS="1.34.1"
 # These tests also run as part of `make test`
 ```
 
+### Parallel execution
+
+By default, versions run sequentially. Use `ENVTEST_JOBS` to run multiple versions
+in parallel — each version gets its own isolated envtest environment (etcd + kube-apiserver):
+
+| Value | Behaviour |
+|-------|-----------|
+| `0` (default) | Sequential — one version at a time |
+| `N` | Run up to N versions in parallel |
+| `MAX` | Run all versions in parallel |
+
+```bash
+# Run 3 OCP versions in parallel
+make test-envtest-ocp ENVTEST_JOBS=3
+
+# Run all OCP versions in parallel
+make test-envtest-ocp ENVTEST_JOBS=MAX
+
+# Run all Kubernetes versions in parallel
+make test-envtest-kube ENVTEST_JOBS=MAX
+
+# Works with the combined target too
+make test-envtest-api-all ENVTEST_JOBS=MAX
+```
+
 ## Test format reference
 
 The YAML format is compatible with
