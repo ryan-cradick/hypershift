@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -190,7 +191,9 @@ func GenerateTestSuite(suiteSpec SuiteSpec) {
 				Expect(crds).To(HaveLen(1), "Only one CRD should have been installed")
 				crd = crds[0]
 
-				Expect(envtest.WaitForCRDs(cfg, crds, envtest.CRDInstallOptions{})).To(Succeed())
+				Expect(envtest.WaitForCRDs(cfg, crds, envtest.CRDInstallOptions{
+					MaxTime: 30 * time.Second,
+				})).To(Succeed())
 			})
 
 			AfterEach(func() {
