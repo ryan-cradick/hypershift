@@ -25,6 +25,33 @@ func FindContainer(name string, containers []corev1.Container) *corev1.Container
 	return nil
 }
 
+func FindEnvVar(name string, envVars []corev1.EnvVar) *corev1.EnvVar {
+	for i := range envVars {
+		if envVars[i].Name == name {
+			return &envVars[i]
+		}
+	}
+	return nil
+}
+
+func FindVolume(name string, volumes []corev1.Volume) *corev1.Volume {
+	for i := range volumes {
+		if volumes[i].Name == name {
+			return &volumes[i]
+		}
+	}
+	return nil
+}
+
+func FindVolumeMount(name string, mounts []corev1.VolumeMount) *corev1.VolumeMount {
+	for i := range mounts {
+		if mounts[i].Name == name {
+			return &mounts[i]
+		}
+	}
+	return nil
+}
+
 func UpdateContainer(name string, containers []corev1.Container, update func(c *corev1.Container)) {
 	for i, c := range containers {
 		if c.Name == name {

@@ -3,11 +3,126 @@ package util
 import (
 	"testing"
 
+	. "github.com/onsi/gomega"
+
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/utils/ptr"
 
 	"github.com/google/go-cmp/cmp"
 )
+
+func TestFindContainer(t *testing.T) {
+	t.Parallel()
+	containers := []corev1.Container{
+		{Name: "first"},
+		{Name: "second"},
+		{Name: "third"},
+	}
+
+	t.Run("When the container exists, it should return a pointer to it", func(t *testing.T) {
+		t.Parallel()
+		g := NewWithT(t)
+		result := FindContainer("second", containers)
+		g.Expect(result).ToNot(BeNil())
+		g.Expect(result.Name).To(Equal("second"))
+	})
+
+	t.Run("When the container does not exist, it should return nil", func(t *testing.T) {
+		t.Parallel()
+		g := NewWithT(t)
+		g.Expect(FindContainer("nonexistent", containers)).To(BeNil())
+	})
+
+	t.Run("When the slice is empty, it should return nil", func(t *testing.T) {
+		t.Parallel()
+		g := NewWithT(t)
+		g.Expect(FindContainer("any", nil)).To(BeNil())
+	})
+}
+
+func TestFindEnvVar(t *testing.T) {
+	t.Parallel()
+	envVars := []corev1.EnvVar{
+		{Name: "FOO", Value: "bar"},
+		{Name: "BAZ", Value: "qux"},
+	}
+
+	t.Run("When the env var exists, it should return a pointer to it", func(t *testing.T) {
+		t.Parallel()
+		g := NewWithT(t)
+		result := FindEnvVar("BAZ", envVars)
+		g.Expect(result).ToNot(BeNil())
+		g.Expect(result.Value).To(Equal("qux"))
+	})
+
+	t.Run("When the env var does not exist, it should return nil", func(t *testing.T) {
+		t.Parallel()
+		g := NewWithT(t)
+		g.Expect(FindEnvVar("MISSING", envVars)).To(BeNil())
+	})
+
+	t.Run("When the slice is empty, it should return nil", func(t *testing.T) {
+		t.Parallel()
+		g := NewWithT(t)
+		g.Expect(FindEnvVar("FOO", nil)).To(BeNil())
+	})
+}
+
+func TestFindVolume(t *testing.T) {
+	t.Parallel()
+	volumes := []corev1.Volume{
+		{Name: "config"},
+		{Name: "certs"},
+	}
+
+	t.Run("When the volume exists, it should return a pointer to it", func(t *testing.T) {
+		t.Parallel()
+		g := NewWithT(t)
+		result := FindVolume("certs", volumes)
+		g.Expect(result).ToNot(BeNil())
+		g.Expect(result.Name).To(Equal("certs"))
+	})
+
+	t.Run("When the volume does not exist, it should return nil", func(t *testing.T) {
+		t.Parallel()
+		g := NewWithT(t)
+		g.Expect(FindVolume("missing", volumes)).To(BeNil())
+	})
+
+	t.Run("When the slice is empty, it should return nil", func(t *testing.T) {
+		t.Parallel()
+		g := NewWithT(t)
+		g.Expect(FindVolume("any", nil)).To(BeNil())
+	})
+}
+
+func TestFindVolumeMount(t *testing.T) {
+	t.Parallel()
+	mounts := []corev1.VolumeMount{
+		{Name: "data", MountPath: "/data"},
+		{Name: "config", MountPath: "/etc/config"},
+	}
+
+	t.Run("When the volume mount exists, it should return a pointer to it", func(t *testing.T) {
+		t.Parallel()
+		g := NewWithT(t)
+		result := FindVolumeMount("config", mounts)
+		g.Expect(result).ToNot(BeNil())
+		g.Expect(result.MountPath).To(Equal("/etc/config"))
+	})
+
+	t.Run("When the volume mount does not exist, it should return nil", func(t *testing.T) {
+		t.Parallel()
+		g := NewWithT(t)
+		g.Expect(FindVolumeMount("missing", mounts)).To(BeNil())
+	})
+
+	t.Run("When the slice is empty, it should return nil", func(t *testing.T) {
+		t.Parallel()
+		g := NewWithT(t)
+		g.Expect(FindVolumeMount("any", nil)).To(BeNil())
+	})
+}
 
 func TestEnforceRestrictedSecurityContextToContainers(t *testing.T) {
 	tests := []struct {
