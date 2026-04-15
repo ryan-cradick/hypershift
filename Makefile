@@ -139,7 +139,7 @@ verify-codecov: ## Validate codecov.yml against Codecov's API.
 		| tee /dev/stderr | grep -q "^Valid!"
 
 .PHONY: verify-parallel
-verify-parallel: verify-codespell verify-codecov lint cpo-container-sync run-gitlint
+verify-parallel: verify-codespell verify-codecov lint cpo-container-sync run-gitlint verify-docs-nav
 
 .PHONY: verify
 verify: generate update staticcheck fmt vet
@@ -499,6 +499,10 @@ hypershift-install-aws-dev:
 .PHONY: run-operator-locally-aws-dev
 run-operator-locally-aws-dev:
 	@$(RUN_OPERATOR_LOCALLY_AWS)
+
+.PHONY: verify-docs-nav
+verify-docs-nav: ## Verify docs nav entries are sorted alphabetically.
+	python3 hack/verify-docs-nav-order.py
 
 .PHONY: verify-codespell
 verify-codespell: codespell ## Verify codespell.
