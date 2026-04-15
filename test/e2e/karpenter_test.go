@@ -26,6 +26,7 @@ import (
 	karpenterassets "github.com/openshift/hypershift/karpenter-operator/controllers/karpenter/assets"
 	karpenterutil "github.com/openshift/hypershift/support/karpenter"
 	"github.com/openshift/hypershift/support/releaseinfo"
+	"github.com/openshift/hypershift/support/supportedversion"
 	e2eutil "github.com/openshift/hypershift/test/e2e/util"
 	dto "github.com/prometheus/client_model/go"
 	appsv1 "k8s.io/api/apps/v1"
@@ -378,10 +379,12 @@ func testNodeClassVersionField(ctx context.Context, mgtClient, guestClient crcli
 		)
 		t.Log("Default OpenshiftEC2NodeClass has correct version status")
 
-		// Use previous minor version (e.g., 4.21.0 for CP 4.22.x) to test a genuinely different version.
-		nodeClassVersion := fmt.Sprintf("%d.%d.0", cpVersion.Major, cpVersion.Minor-1)
+		// Use a previous minor version (n-2) to test a genuinely different version.
+		prevMajor, prevMinor, err := supportedversion.PreviousMinorVersion(cpVersion, 2)
+		g.Expect(err).NotTo(HaveOccurred())
+		nodeClassVersion := fmt.Sprintf("%d.%d.0", prevMajor, prevMinor)
 
-		// Create a custom OpenshiftEC2NodeClass with the version field set to the previous minor.
+		// Create a custom OpenshiftEC2NodeClass with the version field set to the n-2 previous minor version.
 		nc := &hyperkarpenterv1.OpenshiftEC2NodeClass{
 			ObjectMeta: metav1.ObjectMeta{
 				Name: "version-test",
@@ -568,12 +571,14 @@ func testNodeClassVersionField(ctx context.Context, mgtClient, guestClient crcli
 		g.Expect(guestClient.Delete(ctx, testNodePool)).To(Succeed())
 
 		// Verify that a version exceeding the allowed n-3 skew sets SupportedVersionSkew=False.
-		skewMinor := cpVersion.Minor - 4
-		if skewMinor <= 14 {
-			t.Logf("Skipping version-skew check: computed skew version 4.%d.0 would be at or below MinSupportedVersion (4.14.0)", skewMinor)
+		skewMajor, skewMinor, err := supportedversion.PreviousMinorVersion(cpVersion, 4)
+		if err != nil {
+			t.Fatalf("Cannot compute n-4 skew version: %v", err)
+		} else if skewMajor == 4 && skewMinor <= 14 {
+			t.Skipf("Skipping version-skew check: computed skew version %d.%d.0 would be at or below MinSupportedVersion (4.14.0)", skewMajor, skewMinor)
 		} else {
 			skewPatch := 1 // There are cases where x.y.0 doesn't exist, so arbitrarily stick with x.y.1 for test consistency
-			skewVersion := fmt.Sprintf("%d.%d.%d", cpVersion.Major, skewMinor, skewPatch)
+			skewVersion := fmt.Sprintf("%d.%d.%d", skewMajor, skewMinor, skewPatch)
 
 			skewNC := &hyperkarpenterv1.OpenshiftEC2NodeClass{
 				ObjectMeta: metav1.ObjectMeta{

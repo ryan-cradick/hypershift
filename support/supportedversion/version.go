@@ -416,6 +416,21 @@ func denormalizeFromV4(minor uint64) (major, displayMinor uint64) {
 	return 4, minor
 }
 
+// PreviousMinorVersion returns the OpenShift version that is n minor releases
+// before v, correctly handling the 5.0 == 4.23 version bridge.
+// For example, PreviousMinorVersion(5.0.0, 2) returns (4, 21).
+func PreviousMinorVersion(v semver.Version, n uint64) (major, minor uint64, err error) {
+	normalized, err := normalizeToV4(v)
+	if err != nil {
+		return 0, 0, err
+	}
+	if normalized.Minor < n {
+		return 0, 0, fmt.Errorf("cannot go back %d minor versions from %s (normalized minor %d)", n, v, normalized.Minor)
+	}
+	major, minor = denormalizeFromV4(normalized.Minor - n)
+	return major, minor, nil
+}
+
 // ValidateVersionSkew validates the version skew between HostedCluster and NodePool versions.
 // Returns nil if the version skew is supported, otherwise returns a descriptive error.
 // All 4.y versions support n-3 version skew (e.g., 4.18 HostedCluster supports NodePools running 4.17, 4.16, and 4.15).

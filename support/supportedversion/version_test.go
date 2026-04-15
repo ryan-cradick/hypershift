@@ -582,6 +582,78 @@ func TestDenormalizeFromV4(t *testing.T) {
 	}
 }
 
+func TestPreviousMinorVersion(t *testing.T) {
+	t.Parallel()
+	testCases := []struct {
+		name          string
+		version       semver.Version
+		n             uint64
+		expectedMajor uint64
+		expectedMinor uint64
+		expectError   bool
+		errSubstr     string
+	}{
+		{
+			name:          "When subtracting within 4.x, it should return the correct 4.x version",
+			version:       semver.MustParse("4.20.0"),
+			n:             2,
+			expectedMajor: 4,
+			expectedMinor: 18,
+		},
+		{
+			name:          "When crossing the 5.x to 4.x bridge, it should denormalize correctly",
+			version:       semver.MustParse("5.0.0"),
+			n:             2,
+			expectedMajor: 4,
+			expectedMinor: 21,
+		},
+		{
+			name:          "When staying within 5.x, it should return the correct 5.x version",
+			version:       semver.MustParse("5.2.0"),
+			n:             1,
+			expectedMajor: 5,
+			expectedMinor: 1,
+		},
+		{
+			name:          "When n is 0, it should return the same version",
+			version:       semver.MustParse("4.18.0"),
+			n:             0,
+			expectedMajor: 4,
+			expectedMinor: 18,
+		},
+		{
+			name:        "When n exceeds the normalized minor, it should return an underflow error",
+			version:     semver.MustParse("4.1.0"),
+			n:           5,
+			expectError: true,
+			errSubstr:   "cannot go back",
+		},
+		{
+			name:        "When major version is unsupported, it should return a normalization error",
+			version:     semver.MustParse("6.0.0"),
+			n:           1,
+			expectError: true,
+			errSubstr:   "unsupported major version",
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			g := NewWithT(t)
+			major, minor, err := PreviousMinorVersion(tc.version, tc.n)
+			if tc.expectError {
+				g.Expect(err).To(HaveOccurred())
+				g.Expect(err.Error()).To(ContainSubstring(tc.errSubstr))
+			} else {
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(major).To(Equal(tc.expectedMajor))
+				g.Expect(minor).To(Equal(tc.expectedMinor))
+			}
+		})
+	}
+}
+
 func TestValidateVersionSkew(t *testing.T) {
 	t.Parallel()
 	v := func(str string) *semver.Version {
