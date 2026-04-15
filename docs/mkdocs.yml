@@ -78,6 +78,7 @@ nav:
     - how-to/common/exposing-services-from-hcp.md
     - how-to/common/multi-arch-on-hcp.md
     - 'Global Pull Secret': how-to/common/global-pull-secret.md
+  - 'Agentic SDLC': how-to/agentic-sdlc.md
   - 'CI':
     - how-to/ci/checking-ci.md
     - how-to/ci/ci-infrastructure.md
