@@ -214,11 +214,11 @@ func testKillAllMembers(parentCtx context.Context, client crclient.Client, clust
 		// Ensure that all etcd pods are replaced
 		e2eutil.EventuallyObjects(t, ctx, "etcd Pods to be replaced", func(ctx context.Context) ([]*corev1.Pod, error) {
 			pods := &corev1.PodList{}
-			err := client.List(ctx, etcdPods, &crclient.ListOptions{
+			err := client.List(ctx, pods, &crclient.ListOptions{
 				Namespace:     guestNamespace,
 				LabelSelector: labels.Set(etcdSts.Spec.Selector.MatchLabels).AsSelector(),
 			})
-			var items []*corev1.Pod
+			items := make([]*corev1.Pod, len(pods.Items))
 			for i := range pods.Items {
 				items[i] = &pods.Items[i]
 			}
