@@ -151,7 +151,7 @@ type nodePoolsMetricsCollector struct {
 	lastCollectTime time.Time
 }
 
-func createNodePoolsMetricsCollector(client client.Client, ec2Client ec2.DescribeInstanceTypesAPIClient, clock clock.Clock) prometheus.Collector {
+func createNodePoolsMetricsCollector(client client.Client, ec2Client ec2.DescribeInstanceTypesAPIClient, clock clock.Clock) prometheus.Collector { //nolint:unparam // parameter kept for testability
 	return &nodePoolsMetricsCollector{
 		Client:                      client,
 		ec2Client:                   ec2Client,

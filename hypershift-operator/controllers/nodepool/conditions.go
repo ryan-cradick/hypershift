@@ -764,7 +764,7 @@ func (r *NodePoolReconciler) setCIDRConflictCondition(nodePool *hyperv1.NodePool
 }
 
 // createReachedIgnitionEndpointCondition creates a condition for the NodePool based on the tokenSecret data.
-func (r NodePoolReconciler) createReachedIgnitionEndpointCondition(ctx context.Context, tokenSecret *corev1.Secret, generation int64) (*hyperv1.NodePoolCondition, error) {
+func (r NodePoolReconciler) createReachedIgnitionEndpointCondition(ctx context.Context, tokenSecret *corev1.Secret, generation int64) (*hyperv1.NodePoolCondition, error) { //nolint:unparam // error return kept for API consistency
 	var condition *hyperv1.NodePoolCondition
 	if err := r.Get(ctx, crclient.ObjectKeyFromObject(tokenSecret), tokenSecret); err != nil {
 		if !apierrors.IsNotFound(err) {
@@ -810,7 +810,7 @@ func (r NodePoolReconciler) createReachedIgnitionEndpointCondition(ctx context.C
 }
 
 // createValidGeneratedPayloadCondition creates a condition for the NodePool based on the tokenSecret data.
-func (r NodePoolReconciler) createValidGeneratedPayloadCondition(ctx context.Context, tokenSecret *corev1.Secret, generation int64) (*hyperv1.NodePoolCondition, error) {
+func (r NodePoolReconciler) createValidGeneratedPayloadCondition(ctx context.Context, tokenSecret *corev1.Secret, generation int64) (*hyperv1.NodePoolCondition, error) { //nolint:unparam // error return kept for API consistency
 	var condition *hyperv1.NodePoolCondition
 	if err := r.Get(ctx, crclient.ObjectKeyFromObject(tokenSecret), tokenSecret); err != nil {
 		if !apierrors.IsNotFound(err) {

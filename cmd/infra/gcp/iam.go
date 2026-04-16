@@ -769,7 +769,7 @@ func (c *IAMManager) retryWithExponentialBackoff(ctx context.Context, operationN
 }
 
 func (c *IAMManager) getProjectNumberFromID(ctx context.Context) (int64, error) {
-	project, err := c.crmService.Projects.Get(c.projectID).Do()
+	project, err := c.crmService.Projects.Get(c.projectID).Context(ctx).Do()
 	if err != nil {
 		return 0, err
 	}
