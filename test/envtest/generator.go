@@ -17,6 +17,7 @@ import (
 	crdassets "github.com/openshift/hypershift/cmd/install/assets/crds"
 
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	k8syaml "k8s.io/apimachinery/pkg/util/yaml"
@@ -208,9 +209,10 @@ func GenerateTestSuite(suiteSpec SuiteSpec) {
 				Expect(envtest.UninstallCRDs(cfg, envtest.CRDInstallOptions{
 					CRDs: []*apiextensionsv1.CustomResourceDefinition{crd},
 				})).ToNot(HaveOccurred())
-				Eventually(func() error {
-					return k8sClient.Get(ctx, client.ObjectKeyFromObject(crd), crd)
-				}, "30s").ShouldNot(Succeed())
+				Eventually(func() bool {
+					err := k8sClient.Get(ctx, client.ObjectKeyFromObject(crd), &apiextensionsv1.CustomResourceDefinition{})
+					return apierrors.IsNotFound(err)
+				}, "30s", "1s").Should(BeTrue(), fmt.Sprintf("CRD %s should be fully removed", crd.Name))
 			})
 
 			generateOnCreateTable(suiteSpec.Tests.OnCreate)
@@ -246,10 +248,19 @@ func GenerateCRDInstallTest(featureSet string) {
 		Expect(crds).To(HaveLen(len(allCRDs)), "all CRDs should have been installed")
 		Expect(envtest.WaitForCRDs(cfg, crds, envtest.CRDInstallOptions{})).To(Succeed())
 
-		// Uninstall after validation.
+		// Uninstall after validation and wait for full removal so that
+		// subsequent per-suite tests do not hit a stale CRD that is still
+		// being deleted by the API server.
 		Expect(envtest.UninstallCRDs(cfg, envtest.CRDInstallOptions{
 			CRDs: crds,
 		})).ToNot(HaveOccurred())
+		for _, crd := range crds {
+			key := client.ObjectKeyFromObject(crd)
+			Eventually(func() bool {
+				err := k8sClient.Get(ctx, key, &apiextensionsv1.CustomResourceDefinition{})
+				return apierrors.IsNotFound(err)
+			}, "30s", "1s").Should(BeTrue(), fmt.Sprintf("CRD %s should be fully removed", crd.Name))
+		}
 	})
 }
 
