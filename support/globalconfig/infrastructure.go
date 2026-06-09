@@ -91,6 +91,7 @@ func ReconcileInfrastructure(infra *configv1.Infrastructure, hcp *hyperv1.Hosted
 	case hyperv1.IBMCloudPlatform:
 		infra.Status.PlatformStatus.IBMCloud = &configv1.IBMCloudPlatformStatus{
 			ProviderType: hcp.Spec.Platform.IBMCloud.ProviderType,
+			Service: "roks-metrics",
 		}
 	case hyperv1.PowerVSPlatform:
 		infra.Status.PlatformStatus.PowerVS = &configv1.PowerVSPlatformStatus{

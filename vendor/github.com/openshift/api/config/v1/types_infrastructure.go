@@ -1858,6 +1858,10 @@ type IBMCloudPlatformStatus struct {
 	// for the cluster's base domain
 	DNSInstanceCRN string `json:"dnsInstanceCRN,omitempty"`
 
+	// service is the identifier for the OpenShift console to identify a cluster as Red Hat Openshift
+	// on IBM Cloud
+	Service string `json:"service,omitempty"`
+
 	// serviceEndpoints is a list of custom endpoints which will override the default
 	// service endpoints of an IBM service. These endpoints are used by components
 	// within the cluster when trying to reach the IBM Cloud Services that have been
