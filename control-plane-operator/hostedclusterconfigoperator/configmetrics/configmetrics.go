@@ -25,7 +25,7 @@ func Register(cache crclient.Reader) {
 		cloudProvider: prometheus.NewGaugeVec(prometheus.GaugeOpts{
 			Name: "cluster_infrastructure_provider",
 			Help: "Reports whether the cluster is configured with an infrastructure provider. type is unset if no cloud provider is recognized or set to the constant used by the Infrastructure config. region is set when the cluster clearly identifies a region within the provider. The value is 1 if a cloud provider is set or 0 if it is unset.",
-		}, []string{"type", "region"}),
+		}, []string{"type", "region", "service"}),
 		featureSet: prometheus.NewGaugeVec(prometheus.GaugeOpts{
 			Name: "cluster_feature_set",
 			Help: "Reports the feature set the cluster is configured to expose. name corresponds to the featureSet field of the cluster. The value is 1 if a cloud provider is supported.",
@@ -68,14 +68,16 @@ func (m *configMetrics) Collect(ch chan<- prometheus.Metric) {
 			// it is illegal to set type to empty string, so let the default case handle
 			// empty string (so we can detect it) while preserving the constant None here
 			case status.Type == configv1.NonePlatformType:
-				g = m.cloudProvider.WithLabelValues(string(status.Type), "")
+				g = m.cloudProvider.WithLabelValues(string(status.Type), "", "")
 				value = 0
 			case status.AWS != nil:
-				g = m.cloudProvider.WithLabelValues(string(status.Type), status.AWS.Region)
+				g = m.cloudProvider.WithLabelValues(string(status.Type), status.AWS.Region, "")
 			case status.GCP != nil:
-				g = m.cloudProvider.WithLabelValues(string(status.Type), status.GCP.Region)
+				g = m.cloudProvider.WithLabelValues(string(status.Type), status.GCP.Region, "")
+			case status.IBMCloud != nil:
+				g = m.cloudProvider.WithLabelValues(string(status.Type), "", string(status.IBMCloud.Service))
 			default:
-				g = m.cloudProvider.WithLabelValues(string(status.Type), "")
+				g = m.cloudProvider.WithLabelValues(string(status.Type), "", "")
 			}
 			g.Set(value)
 			ch <- g
