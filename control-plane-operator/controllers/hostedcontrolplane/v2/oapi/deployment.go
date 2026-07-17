@@ -16,7 +16,6 @@ import (
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
-	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/utils/ptr"
@@ -80,29 +79,27 @@ func adaptDeployment(cpContext component.WorkloadContext, deployment *appsv1.Dep
 		util.RemoveContainer("audit-logs", &deployment.Spec.Template.Spec)
 	}
 
-	serviceServingCA, err := getServiceServingCA(cpContext)
-	if err != nil {
-		return err
-	}
-	if serviceServingCA != nil {
-		deployment.Spec.Template.Spec.Volumes = append(deployment.Spec.Template.Spec.Volumes, corev1.Volume{
-			Name: "kube-controller-manager",
-			VolumeSource: corev1.VolumeSource{
-				ConfigMap: &corev1.ConfigMapVolumeSource{
-					LocalObjectReference: corev1.LocalObjectReference{
-						Name: serviceServingCA.Name,
-					},
+	// Always add the service-serving-ca volume with optional=true so that the deployment spec is
+	// stable regardless of whether the configmap exists yet. This avoids a pod restart when the
+	// Hosted Cluster Config Operator populates the configmap after the initial control-plane reconcile.
+	deployment.Spec.Template.Spec.Volumes = append(deployment.Spec.Template.Spec.Volumes, corev1.Volume{
+		Name: "kube-controller-manager",
+		VolumeSource: corev1.VolumeSource{
+			ConfigMap: &corev1.ConfigMapVolumeSource{
+				LocalObjectReference: corev1.LocalObjectReference{
+					Name: manifests.ServiceServingCA(cpContext.HCP.Namespace).Name,
 				},
+				Optional: ptr.To(true),
 			},
-		})
+		},
+	})
 
-		util.UpdateContainer("oas-trust-anchor-generator", deployment.Spec.Template.Spec.InitContainers, func(c *corev1.Container) {
-			c.VolumeMounts = append(c.VolumeMounts, corev1.VolumeMount{
-				Name:      "kube-controller-manager",
-				MountPath: "/run/service-ca-signer",
-			})
+	util.UpdateContainer("oas-trust-anchor-generator", deployment.Spec.Template.Spec.InitContainers, func(c *corev1.Container) {
+		c.VolumeMounts = append(c.VolumeMounts, corev1.VolumeMount{
+			Name:      "kube-controller-manager",
+			MountPath: "/run/service-ca-signer",
 		})
-	}
+	})
 
 	if cpContext.HCP.Spec.AuditWebhook != nil && len(cpContext.HCP.Spec.AuditWebhook.Name) > 0 {
 		applyAuditWebhookConfigFileVolume(&deployment.Spec.Template.Spec, cpContext.HCP.Spec.AuditWebhook)
@@ -142,17 +139,6 @@ func buildAdditionalTrustBundleProjectedVolume(additionalCAs []corev1.VolumeProj
 		DefaultMode: ptr.To[int32](420),
 	}
 	return v
-}
-
-func getServiceServingCA(cpContext component.WorkloadContext) (*corev1.ConfigMap, error) {
-	serviceServingCA := manifests.ServiceServingCA(cpContext.HCP.Namespace)
-	if err := cpContext.Client.Get(cpContext, client.ObjectKeyFromObject(serviceServingCA), serviceServingCA); err != nil {
-		if !apierrors.IsNotFound(err) {
-			return nil, fmt.Errorf("failed to get service serving CA")
-		}
-		return nil, nil
-	}
-	return serviceServingCA, nil
 }
 
 func getAdditionalCAs(cpContext component.WorkloadContext) ([]corev1.VolumeProjection, error) {

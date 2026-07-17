@@ -13,17 +13,11 @@ import (
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
-	apierrors "k8s.io/apimachinery/pkg/api/errors"
-
-	"sigs.k8s.io/controller-runtime/pkg/client"
+	"k8s.io/utils/ptr"
 )
 
 func adaptDeployment(cpContext component.WorkloadContext, deployment *appsv1.Deployment) error {
 	hcp := cpContext.HCP
-	serviceServingCA, err := getServiceServingCA(cpContext)
-	if err != nil {
-		return err
-	}
 
 	featureGates, err := config.FeatureGatesFromConfigMap(cpContext.Context, cpContext.Client, cpContext.HCP.Namespace)
 	if err != nil {
@@ -69,35 +63,27 @@ func adaptDeployment(cpContext component.WorkloadContext, deployment *appsv1.Dep
 
 		proxy.SetEnvVars(&c.Env)
 
-		if serviceServingCA != nil {
-			deployment.Spec.Template.Spec.Volumes = append(deployment.Spec.Template.Spec.Volumes, corev1.Volume{
-				Name: "service-serving-ca",
-				VolumeSource: corev1.VolumeSource{
-					ConfigMap: &corev1.ConfigMapVolumeSource{
-						LocalObjectReference: corev1.LocalObjectReference{
-							Name: serviceServingCA.Name,
-						},
+		// Always add the service-serving-ca volume and mount with optional=true so that the
+		// deployment spec is stable regardless of whether the configmap exists yet. This avoids
+		// a pod restart when the Hosted Cluster Config Operator populates the configmap after
+		// the initial control-plane reconcile.
+		deployment.Spec.Template.Spec.Volumes = append(deployment.Spec.Template.Spec.Volumes, corev1.Volume{
+			Name: "service-serving-ca",
+			VolumeSource: corev1.VolumeSource{
+				ConfigMap: &corev1.ConfigMapVolumeSource{
+					LocalObjectReference: corev1.LocalObjectReference{
+						Name: manifests.ServiceServingCA(hcp.Namespace).Name,
 					},
+					Optional: ptr.To(true),
 				},
-			})
+			},
+		})
 
-			c.VolumeMounts = append(c.VolumeMounts, corev1.VolumeMount{
-				Name:      "service-serving-ca",
-				MountPath: "/etc/kubernetes/certs/service-ca",
-			})
-		}
+		c.VolumeMounts = append(c.VolumeMounts, corev1.VolumeMount{
+			Name:      "service-serving-ca",
+			MountPath: "/etc/kubernetes/certs/service-ca",
+		})
 	})
 
 	return nil
-}
-
-func getServiceServingCA(cpContext component.WorkloadContext) (*corev1.ConfigMap, error) {
-	serviceServingCA := manifests.ServiceServingCA(cpContext.HCP.Namespace)
-	if err := cpContext.Client.Get(cpContext, client.ObjectKeyFromObject(serviceServingCA), serviceServingCA); err != nil {
-		if !apierrors.IsNotFound(err) {
-			return nil, fmt.Errorf("failed to get service serving CA")
-		}
-		return nil, nil
-	}
-	return serviceServingCA, nil
 }
