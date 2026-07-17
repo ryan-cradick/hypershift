@@ -25,13 +25,9 @@ func adaptConfig(cpContext component.WorkloadContext, cm *corev1.ConfigMap) erro
 		return fmt.Errorf("unable to decode existing KubeControllerManager configuration: %w", err)
 	}
 
-	serviceServingCA, err := getServiceServingCA(cpContext)
-	if err != nil {
-		return err
-	}
-	if serviceServingCA != nil {
-		config.ServiceServingCert.CertFile = "/etc/kubernetes/certs/service-ca/service-ca.crt"
-	}
+	// The service-serving-ca volume is always mounted (with optional=true) so the cert file
+	// path is always valid once the configmap is populated by the Hosted Cluster Config Operator.
+	config.ServiceServingCert.CertFile = "/etc/kubernetes/certs/service-ca/service-ca.crt"
 
 	configStr, err := k8sutil.SerializeResource(config, api.Scheme)
 	if err != nil {

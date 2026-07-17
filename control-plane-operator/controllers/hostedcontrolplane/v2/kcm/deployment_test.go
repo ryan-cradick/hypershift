@@ -362,7 +362,7 @@ func TestAdaptDeployment(t *testing.T) {
 			},
 		},
 		{
-			name: "When service serving CA exists, it should add volume and volume mount",
+			name: "When service serving CA configmap exists, it should add optional volume and volume mount",
 			hcp: &hyperv1.HostedControlPlane{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "test-hcp",
@@ -394,22 +394,21 @@ func TestAdaptDeployment(t *testing.T) {
 				g := NewWithT(t)
 				g.Expect(err).ToNot(HaveOccurred())
 
-				// Check volume is added
 				vol := podspec.FindVolume("service-serving-ca", deployment.Spec.Template.Spec.Volumes)
-				g.Expect(vol).ToNot(BeNil(), "service-serving-ca volume should be added")
+				g.Expect(vol).ToNot(BeNil(), "service-serving-ca volume should always be added")
 				g.Expect(vol.VolumeSource.ConfigMap).ToNot(BeNil())
 				g.Expect(vol.VolumeSource.ConfigMap.Name).To(Equal("service-serving-ca"))
+				g.Expect(vol.VolumeSource.ConfigMap.Optional).To(Equal(ptr.To(true)))
 
-				// Check volume mount is added
 				container := podspec.FindContainer(ComponentName, deployment.Spec.Template.Spec.Containers)
 				g.Expect(container).ToNot(BeNil())
 				mount := podspec.FindVolumeMount("service-serving-ca", container.VolumeMounts)
-				g.Expect(mount).ToNot(BeNil(), "service-serving-ca volume mount should be added")
+				g.Expect(mount).ToNot(BeNil(), "service-serving-ca volume mount should always be added")
 				g.Expect(mount.MountPath).To(Equal("/etc/kubernetes/certs/service-ca"))
 			},
 		},
 		{
-			name: "When service serving CA does not exist, it should not add volume or mount",
+			name: "When service serving CA configmap does not exist, it should still add optional volume and volume mount",
 			hcp: &hyperv1.HostedControlPlane{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "test-hcp",
@@ -431,13 +430,16 @@ func TestAdaptDeployment(t *testing.T) {
 				g := NewWithT(t)
 				g.Expect(err).ToNot(HaveOccurred())
 
-				// Check volume is not added
-				g.Expect(podspec.FindVolume("service-serving-ca", deployment.Spec.Template.Spec.Volumes)).To(BeNil())
+				// Volume and mount are always present even when the configmap doesn't exist yet
+				vol := podspec.FindVolume("service-serving-ca", deployment.Spec.Template.Spec.Volumes)
+				g.Expect(vol).ToNot(BeNil(), "service-serving-ca volume should always be added")
+				g.Expect(vol.VolumeSource.ConfigMap).ToNot(BeNil())
+				g.Expect(vol.VolumeSource.ConfigMap.Optional).To(Equal(ptr.To(true)))
 
-				// Check volume mount is not added
 				container := podspec.FindContainer(ComponentName, deployment.Spec.Template.Spec.Containers)
 				g.Expect(container).ToNot(BeNil())
-				g.Expect(podspec.FindVolumeMount("service-serving-ca", container.VolumeMounts)).To(BeNil())
+				mount := podspec.FindVolumeMount("service-serving-ca", container.VolumeMounts)
+				g.Expect(mount).ToNot(BeNil(), "service-serving-ca volume mount should always be added")
 			},
 		},
 	}
