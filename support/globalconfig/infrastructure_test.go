@@ -27,6 +27,7 @@ func assertOnlyExpectedPlatformStatus(g Gomega, infra *configv1.Infrastructure, 
 		{"AWS", infra.Status.PlatformStatus.AWS, platform == hyperv1.AWSPlatform},
 		{"Azure", infra.Status.PlatformStatus.Azure, platform == hyperv1.AzurePlatform},
 		{"GCP", infra.Status.PlatformStatus.GCP, platform == hyperv1.GCPPlatform},
+		{"IBMCloud", infra.Status.PlatformStatus.IBMCloud, platform == hyperv1.IBMCloudPlatform},
 		{"PowerVS", infra.Status.PlatformStatus.PowerVS, platform == hyperv1.PowerVSPlatform},
 		{"OpenStack", infra.Status.PlatformStatus.OpenStack, platform == hyperv1.OpenStackPlatform},
 	}
@@ -389,6 +390,52 @@ func TestReconcileInfrastructure(t *testing.T) {
 			},
 		},
 	}
+
+	// IBMCloud platform
+	testsCases = append(testsCases,
+		struct {
+			name       string
+			inputHCP   *hyperv1.HostedControlPlane
+			inputInfra *configv1.Infrastructure
+			verify     func(g Gomega, infra *configv1.Infrastructure)
+		}{
+			name:       "When IBMCloud platform is specified, it should set IBMCloud platform status with ProviderType",
+			inputInfra: InfrastructureConfig(),
+			inputHCP: func() *hyperv1.HostedControlPlane {
+				hcp := baseHCP(hyperv1.IBMCloudPlatform)
+				hcp.Spec.Platform.IBMCloud = &hyperv1.IBMCloudPlatformSpec{
+					ProviderType: configv1.IBMCloudProviderTypeVPC,
+				}
+				return hcp
+			}(),
+			verify: func(g Gomega, infra *configv1.Infrastructure) {
+				g.Expect(infra.Status.Platform).To(Equal(configv1.IBMCloudPlatformType))
+				g.Expect(infra.Status.PlatformStatus.IBMCloud).ToNot(BeNil())
+				g.Expect(infra.Status.PlatformStatus.IBMCloud.ProviderType).To(Equal(configv1.IBMCloudProviderTypeVPC))
+			},
+		},
+		struct {
+			name       string
+			inputHCP   *hyperv1.HostedControlPlane
+			inputInfra *configv1.Infrastructure
+			verify     func(g Gomega, infra *configv1.Infrastructure)
+		}{
+			name:       "When IBMCloud platform has Classic ProviderType, it should set IBMCloud status with Classic provider",
+			inputInfra: InfrastructureConfig(),
+			inputHCP: func() *hyperv1.HostedControlPlane {
+				hcp := baseHCP(hyperv1.IBMCloudPlatform)
+				hcp.Spec.Platform.IBMCloud = &hyperv1.IBMCloudPlatformSpec{
+					ProviderType: configv1.IBMCloudProviderTypeClassic,
+				}
+				return hcp
+			}(),
+			verify: func(g Gomega, infra *configv1.Infrastructure) {
+				g.Expect(infra.Status.PlatformStatus.IBMCloud).ToNot(BeNil())
+				g.Expect(infra.Status.PlatformStatus.IBMCloud.ProviderType).To(Equal(configv1.IBMCloudProviderTypeClassic))
+			},
+		},
+	)
+
 	for _, tc := range testsCases {
 		t.Run(tc.name, func(t *testing.T) {
 			g := NewGomegaWithT(t)
