@@ -1823,7 +1823,7 @@ func (r *HostedClusterReconciler) reconcile(ctx context.Context, req ctrl.Reques
 	}
 	hcp = controlplaneoperator.HostedControlPlane(controlPlaneNamespace.Name, hcluster.Name)
 	_, err = createOrUpdate(ctx, r.Client, hcp, func() error {
-		return reconcileHostedControlPlane(hcp, hcluster, isAutoscalingNeeded, isAWSNodeTerminationHandlerNeeded,
+		return reconcileHostedControlPlane(ctx, hcp, hcluster, isAutoscalingNeeded, isAWSNodeTerminationHandlerNeeded,
 			annotationsForCertRenewal(log,
 				hcp,
 				shouldCheckForStaleCerts(hcluster, defaultToControlPlaneV2),
@@ -2439,7 +2439,7 @@ func reconcileHostedControlPlaneAnnotations(hcp *hyperv1.HostedControlPlane, hcl
 
 // reconcileHostedControlPlane reconciles the given HostedControlPlane, which
 // will be mutated.
-func reconcileHostedControlPlane(hcp *hyperv1.HostedControlPlane, hcluster *hyperv1.HostedCluster, isAutoscalingNeeded bool, isAWSNodeTerminationHandlerNeeded bool, certRenewalAnnotations func() (map[string]string, error)) error {
+func reconcileHostedControlPlane(ctx context.Context, hcp *hyperv1.HostedControlPlane, hcluster *hyperv1.HostedCluster, isAutoscalingNeeded bool, isAWSNodeTerminationHandlerNeeded bool, certRenewalAnnotations func() (map[string]string, error)) error {
 	if err := reconcileHostedControlPlaneAnnotations(hcp, hcluster, isAutoscalingNeeded, isAWSNodeTerminationHandlerNeeded, certRenewalAnnotations); err != nil {
 		return err
 	}
@@ -2536,14 +2536,21 @@ func reconcileHostedControlPlane(hcp *hyperv1.HostedControlPlane, hcluster *hype
 	}
 
 	hcp.Spec.Monitoring = hcluster.Spec.Monitoring
+	log := ctrl.LoggerFrom(ctx)
+	ec := "============================================="
+	log.Info(ec, "spec", hcp.Spec.Monitoring)
 	// Backward compat: if the deprecated annotation is present and the spec mode is not explicitly set,
 	// enable metrics forwarding on the HCP so that downstream consumers (CPO, HCCO) use the spec field.
 	// An explicit None mode takes precedence over the annotation.
 	if hcp.Spec.Monitoring.MetricsForwarding.Mode == "" {
+		log.Info(ec, "hcp.Spec.Monitoring.MetricsForwarding.Mode", "empty")
 		if _, hasAnnotation := hcluster.Annotations[hyperv1.EnableMetricsForwarding]; hasAnnotation {
+			log.Info(ec, "annotation", "found")
 			hcp.Spec.Monitoring.MetricsForwarding.Mode = hyperv1.MetricsForwardingModeForward
 		}
 	}
+	hcp.Spec.Monitoring.MetricsForwarding.Mode = hyperv1.MetricsForwardingModeForward
+	log.Info(ec, "default", "true")
 
 	// N-1 compat: older CPOs (4.22) only read the annotation, not the spec field.
 	// Mirror the spec mode to the annotation so they can still deploy metrics forwarding.
