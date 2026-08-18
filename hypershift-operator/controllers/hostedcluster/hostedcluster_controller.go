@@ -2535,6 +2535,7 @@ func reconcileHostedControlPlane(ctx context.Context, hcp *hyperv1.HostedControl
 		hcp.Spec.OperatorConfiguration = nil
 	}
 
+	// RKC
 	hcp.Spec.Monitoring = hcluster.Spec.Monitoring
 	log := ctrl.LoggerFrom(ctx)
 	ec := "============================================="
@@ -2549,8 +2550,6 @@ func reconcileHostedControlPlane(ctx context.Context, hcp *hyperv1.HostedControl
 			hcp.Spec.Monitoring.MetricsForwarding.Mode = hyperv1.MetricsForwardingModeForward
 		}
 	}
-	hcp.Spec.Monitoring.MetricsForwarding.Mode = hyperv1.MetricsForwardingModeForward
-	log.Info(ec, "default", "true")
 
 	// N-1 compat: older CPOs (4.22) only read the annotation, not the spec field.
 	// Mirror the spec mode to the annotation so they can still deploy metrics forwarding.
